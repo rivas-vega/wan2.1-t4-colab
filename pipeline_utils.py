@@ -37,8 +37,7 @@ def clear_cuda_cache():
 
 def load_wan_t4_pipeline(
     model_id: str = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
-    use_quantized_4bit: bool = False,
-    quantized_model_id: str = "sarthak247/Wan2.1-T2V-1.3B-nf4",
+    quantization: str = "4bit",  # "4bit" (0.5 bytes NF4), "8bit" (1 byte INT8), or "fp16" (2 bytes)
     dtype: torch.dtype = torch.float16,
 ):
     """
@@ -46,30 +45,16 @@ def load_wan_t4_pipeline(
 
     Args:
         model_id: HuggingFace repository for official Diffusers weights.
-        use_quantized_4bit: If True, loads pre-quantized 4-bit NF4 weights for lowest VRAM.
-        quantized_model_id: HuggingFace repository for community NF4 weights.
+        quantization:
+            - '4bit': 0.5 bytes per parameter (NF4 via bitsandbytes). Lowest VRAM (~4-6 GB).
+            - '8bit': 1 byte per parameter (INT8 via bitsandbytes). Balanced (~6-7 GB).
+            - 'fp16': 2 bytes per parameter (native half-precision with CPU offload ~7.8 GB).
         dtype: Computation dtype (torch.float16 recommended for Turing T4 architecture).
 
     Returns:
         Configured and memory-offloaded WanPipeline ready for inference.
     """
     clear_cuda_cache()
-
-    if use_quantized_4bit:
-        print(f"[Wan 2.1 Loader] Loading 4-bit NF4 quantized variant: {quantized_model_id}...")
-        try:
-            from diffusers import DiffusionPipeline
-            pipe = DiffusionPipeline.from_pretrained(
-                quantized_model_id,
-                torch_dtype=dtype,
-            )
-            if torch.cuda.is_available():
-                pipe.enable_model_cpu_offload()
-            return pipe
-        except Exception as e:
-            print(f"[Warning] 4-bit pipeline loading failed ({e}). Falling back to standard pipeline with CPU offload...")
-
-    print(f"[Wan 2.1 Loader] Loading Wan 2.1 from {model_id} with T4 memory optimizations...")
 
     # Prevent diffusers from failing on Colab's pre-installed torchao
     try:
@@ -86,35 +71,62 @@ def load_wan_t4_pipeline(
     except Exception:
         pass
 
-    from diffusers import AutoencoderKLWan, WanPipeline
+    from diffusers import AutoencoderKLWan, WanPipeline, WanTransformer3DModel
 
-    # 1. Load VAE (keeping float32 or float16 with tiling to prevent artifacts)
+    print(f"[Wan 2.1 Loader] Loading VAE (float32 with tiling)...")
     vae = AutoencoderKLWan.from_pretrained(
         model_id,
         subfolder="vae",
         torch_dtype=torch.float32,
     )
 
-    # 2. Load Pipeline in float16 (T4 has native FP16 tensor cores)
-    pipe = WanPipeline.from_pretrained(
-        model_id,
-        vae=vae,
-        torch_dtype=dtype,
-    )
+    transformer = None
+    if quantization == "4bit":
+        print(f"[Wan 2.1 Loader] Applying 4-BIT QUANTIZATION (0.5 bytes/param, NF4) to 1.3B DiT...")
+        from diffusers import BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=dtype,
+        )
+        transformer = WanTransformer3DModel.from_pretrained(
+            model_id,
+            subfolder="transformer",
+            quantization_config=bnb_config,
+            torch_dtype=dtype,
+        )
+    elif quantization == "8bit":
+        print(f"[Wan 2.1 Loader] Applying 8-BIT QUANTIZATION (1 byte/param, INT8) to 1.3B DiT...")
+        from diffusers import BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        transformer = WanTransformer3DModel.from_pretrained(
+            model_id,
+            subfolder="transformer",
+            quantization_config=bnb_config,
+            torch_dtype=dtype,
+        )
+    else:
+        print(f"[Wan 2.1 Loader] Loading in FP16 (2 bytes/param) with CPU offload...")
 
-    # 3. Enable Model CPU Offload: Moves sub-modules (UMT5 -> DiT -> VAE) to GPU
-    # only when active during inference, keeping peak VRAM below 8 GB.
+    print(f"[Wan 2.1 Loader] Assembling WanPipeline...")
+    pipe_kwargs = {"vae": vae, "torch_dtype": dtype}
+    if transformer is not None:
+        pipe_kwargs["transformer"] = transformer
+
+    pipe = WanPipeline.from_pretrained(model_id, **pipe_kwargs)
+
+    # Enable Model CPU Offload: Moves sub-modules to GPU only when active
     if torch.cuda.is_available():
         pipe.enable_model_cpu_offload()
 
-    # 4. Enable VAE Tiling and Slicing (crucial to avoid OOM during 3D video decoding)
+    # Enable VAE Tiling and Slicing (crucial to avoid OOM during 3D video decoding)
     if hasattr(pipe, "vae") and pipe.vae is not None:
         if hasattr(pipe.vae, "enable_tiling"):
             pipe.vae.enable_tiling()
         if hasattr(pipe.vae, "enable_slicing"):
             pipe.vae.enable_slicing()
 
-    print(f"[Wan 2.1 Loader] Model loaded successfully. {get_gpu_memory_summary()}")
+    print(f"[Wan 2.1 Loader] Model loaded successfully ({quantization} mode). {get_gpu_memory_summary()}")
     return pipe
 
 
