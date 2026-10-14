@@ -70,6 +70,22 @@ def load_wan_t4_pipeline(
             print(f"[Warning] 4-bit pipeline loading failed ({e}). Falling back to standard pipeline with CPU offload...")
 
     print(f"[Wan 2.1 Loader] Loading Wan 2.1 from {model_id} with T4 memory optimizations...")
+
+    # Prevent diffusers from failing on Colab's pre-installed torchao
+    try:
+        import diffusers.utils.import_utils as _iu
+        _iu._torchao_available = False
+    except Exception:
+        pass
+    try:
+        import torchao.quantization
+        if not hasattr(torchao.quantization, "FqnToConfig"):
+            class FqnToConfig:
+                def __init__(self, *args, **kwargs): pass
+            torchao.quantization.FqnToConfig = FqnToConfig
+    except Exception:
+        pass
+
     from diffusers import AutoencoderKLWan, WanPipeline
 
     # 1. Load VAE (keeping float32 or float16 with tiling to prevent artifacts)

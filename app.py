@@ -7,6 +7,22 @@ Run locally or directly in Google Colab:
 
 import os
 import random
+
+# Prevent Colab torchao import conflict
+try:
+    import diffusers.utils.import_utils as _iu
+    _iu._torchao_available = False
+except Exception:
+    pass
+try:
+    import torchao.quantization
+    if not hasattr(torchao.quantization, "FqnToConfig"):
+        class FqnToConfig:
+            def __init__(self, *args, **kwargs): pass
+        torchao.quantization.FqnToConfig = FqnToConfig
+except Exception:
+    pass
+
 import gradio as gr
 from pipeline_utils import load_wan_t4_pipeline, generate_video, get_gpu_memory_summary, clear_cuda_cache
 
