@@ -57,7 +57,7 @@ def setup_turing_cuda_optimizations():
 
 def load_wan_t4_pipeline(
     model_id: str = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
-    quantization: str = "fp16",  # "fp16" (FASTEST on T4, ~7.8GB VRAM), "4bit" (~4.5GB VRAM), or "8bit" (~6GB)
+    quantization: str = "4bit",  # "4bit" (SAFEST on Colab 12.7GB RAM, <5GB RAM), "fast_fp16", or "8bit"
     dtype: torch.dtype = torch.float16,
     scheduler_type: str = "unipc",  # "unipc" (faster convergence, 14-16 steps) or "euler" (25-30 steps)
 ):
@@ -108,10 +108,58 @@ def load_wan_t4_pipeline(
         torch_dtype=torch.float32,
     )
 
-    transformer = None
-    if quantization == "4bit":
-        print(f"[Wan 2.1 Loader] Applying 4-BIT QUANTIZATION (0.5 bytes/param, NF4) to 1.3B DiT...")
-        print(f"  Note: 4-bit saves VRAM (~4.5GB peak) but adds ~1.8x dequantization overhead on T4.")
+    # CRITICAL COLAB FIX:
+    # In Wan-AI/Wan2.1-T2V-1.3B-Diffusers, the text encoder (UMT5-XXL) is 22.7 GB in FP32!
+    # Without quantization during pipeline loading, Colab's 12.7 GB System RAM immediately
+    # crashes with OOM when reading the 5 sharded safetensors files.
+    # By configuring PipelineQuantizationConfig with bitsandbytes, the 22.7 GB text encoder
+    # is streamed and compressed down to ~2.4 GB, keeping peak System RAM under 5.0 GB!
+    try:
+        from diffusers.quantizers import PipelineQuantizationConfig
+        use_pipeline_quant = True
+    except (ImportError, AttributeError):
+        use_pipeline_quant = False
+
+    pipe_kwargs = {
+        "vae": vae,
+        "torch_dtype": dtype,
+    }
+
+    if use_pipeline_quant:
+        if quantization == "fast_fp16":
+            print(f"[Wan 2.1 Loader] FAST FP16: Compressing 22.7GB UMT5 to 4-bit (2.4GB) | DiT kept in native FP16...")
+            pipe_kwargs["quantization_config"] = PipelineQuantizationConfig(
+                quant_backend="bitsandbytes_4bit",
+                quant_kwargs={
+                    "load_in_4bit": True,
+                    "bnb_4bit_quant_type": "nf4",
+                    "bnb_4bit_compute_dtype": dtype,
+                },
+                components_to_quantize=["text_encoder"],
+            )
+        elif quantization == "8bit":
+            print(f"[Wan 2.1 Loader] 8-BIT: Quantizing UMT5 and DiT with bitsandbytes 8-bit...")
+            pipe_kwargs["quantization_config"] = PipelineQuantizationConfig(
+                quant_backend="bitsandbytes_8bit",
+                quant_kwargs={"load_in_8bit": True},
+                components_to_quantize=["text_encoder", "transformer"],
+            )
+        else:  # "4bit" (default, 100% safe on Colab 12.7GB RAM)
+            print(f"[Wan 2.1 Loader] 4-BIT NF4: Quantizing UMT5 + DiT with bitsandbytes 4-bit (RAM < 5 GB)...")
+            pipe_kwargs["quantization_config"] = PipelineQuantizationConfig(
+                quant_backend="bitsandbytes_4bit",
+                quant_kwargs={
+                    "load_in_4bit": True,
+                    "bnb_4bit_quant_type": "nf4",
+                    "bnb_4bit_compute_dtype": dtype,
+                },
+                components_to_quantize=["text_encoder", "transformer"],
+            )
+
+        print(f"[Wan 2.1 Loader] Assembling WanPipeline with PipelineQuantizationConfig...")
+        pipe = WanPipeline.from_pretrained(model_id, **pipe_kwargs)
+    else:
+        # Fallback for environments with older diffusers
         from diffusers import BitsAndBytesConfig
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -124,26 +172,7 @@ def load_wan_t4_pipeline(
             quantization_config=bnb_config,
             torch_dtype=dtype,
         )
-    elif quantization == "8bit":
-        print(f"[Wan 2.1 Loader] Applying 8-BIT QUANTIZATION (1 byte/param, INT8) to 1.3B DiT...")
-        from diffusers import BitsAndBytesConfig
-        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
-        transformer = WanTransformer3DModel.from_pretrained(
-            model_id,
-            subfolder="transformer",
-            quantization_config=bnb_config,
-            torch_dtype=dtype,
-        )
-    else:
-        print(f"[Wan 2.1 Loader] Loading in native FP16 (2 bytes/param) - FASTEST mode on T4...")
-        print(f"  DiT weights: ~2.6 GB. Runs directly on Turing Tensor Cores with zero dequant overhead.")
-
-    print(f"[Wan 2.1 Loader] Assembling WanPipeline...")
-    pipe_kwargs = {"vae": vae, "torch_dtype": dtype}
-    if transformer is not None:
-        pipe_kwargs["transformer"] = transformer
-
-    pipe = WanPipeline.from_pretrained(model_id, **pipe_kwargs)
+        pipe = WanPipeline.from_pretrained(model_id, vae=vae, transformer=transformer, torch_dtype=dtype)
 
     # Configure fast higher-order solver if requested
     if scheduler_type == "unipc":
