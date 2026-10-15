@@ -81,9 +81,9 @@ def setup_turing_cuda_optimizations():
 
 def load_wan_t4_pipeline(
     model_id: str = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
-    quantization: str = "4bit",  # "4bit" (SAFEST on Colab 12.7GB RAM, <5GB RAM), "fast_fp16", or "8bit"
+    quantization: str = "fast_fp16",  # "fast_fp16" (Native FP16 DiT + 4-bit UMT5: best quality, 1.8x faster on T4)
     dtype: torch.dtype = torch.float16,
-    scheduler_type: str = "unipc",  # "unipc" (faster convergence, 14-16 steps) or "euler" (25-30 steps)
+    scheduler_type: str = "unipc",  # "unipc" (higher-order solver) or "euler"
     hf_token: Optional[str] = None,
 ):
     """
@@ -385,11 +385,12 @@ WAN_NEGATIVE_PROMPT = (
     "walking backwards"
 )
 
-# Fixed, tuned settings. num_frames must be 4k+1 (Wan's VAE compresses time 4x).
+# High-fidelity hardware-tuned settings for Tesla T4. num_frames must be 4k+1.
 DURATION_PRESETS = {
-    "2s": dict(width=624, height=352, num_frames=33, steps=16, eta_min=4),
-    "3s": dict(width=512, height=320, num_frames=49, steps=15, eta_min=4),
-    "5s": dict(width=512, height=320, num_frames=81, steps=15, eta_min=9),
+    "2s": dict(width=624, height=352, num_frames=25, steps=22, eta_min=3.5),
+    "2s HQ (480p)": dict(width=832, height=480, num_frames=25, steps=22, eta_min=6.5),
+    "3s": dict(width=624, height=352, num_frames=49, steps=20, eta_min=6),
+    "5s": dict(width=512, height=320, num_frames=81, steps=18, eta_min=8.5),
 }
 
 _GENERATION_LOCK = threading.Lock()  # one job at a time on a single T4

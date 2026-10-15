@@ -127,12 +127,12 @@ def build_demo(pipe, audio_pipe=None, output_dir: str = "outputs") -> gr.Blocks:
             )
             with gr.Row(elem_id="controls"):
                 length = gr.Radio(
-                    choices=list(DURATION_PRESETS.keys()), value="3s",
+                    choices=list(DURATION_PRESETS.keys()), value="2s",
                     show_label=False, container=False, elem_id="length",
                 )
                 create = gr.Button("Create", variant="primary", scale=0, elem_id="create")
 
-        hint = gr.Markdown(_hint("3s", has_sound), elem_id="hint")
+        hint = gr.Markdown(_hint("2s", has_sound), elem_id="hint")
 
         with gr.Row(elem_id="chips"):
             for label, text in EXAMPLES.items():
