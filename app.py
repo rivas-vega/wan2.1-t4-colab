@@ -154,10 +154,10 @@ def launch(demo: gr.Blocks, share: bool = True, **kwargs):
 if __name__ == "__main__":
     from pipeline_utils import load_audio_pipeline, load_wan_t4_pipeline
 
+    wan = load_wan_t4_pipeline()
     audio = None
     try:
         audio = load_audio_pipeline()
     except Exception as e:
         print(f"[sound] disabled: {type(e).__name__}: {e}")
-    wan = load_wan_t4_pipeline()
     launch(build_demo(wan, audio), inbrowser=True)

@@ -6,7 +6,7 @@
 [![Model: Wan 2.1](https://img.shields.io/badge/Model-Wan2.1--1.3B-blue.svg)](https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers)
 [![GPU: Tesla T4](https://img.shields.io/badge/GPU-Tesla%20T4%20(15GB)-green.svg)]()
 
-A hardware-optimized pipeline and interactive **Meta-style Gradio UI** to generate high-fidelity videos **with synchronized audio** using Alibaba's **Wan 2.1 (T2V-1.3B)** and **AudioLDM 2** on a **100% free Google Colab instance** (NVIDIA Tesla T4 GPU, 15 GB VRAM) in **~2.5 to 4.5 minutes**.
+A hardware-optimized pipeline and interactive **Meta-style Gradio UI** to generate high-fidelity videos **with synchronized audio** using Alibaba's **Wan 2.1 (T2V-1.3B)** and **AudioLDM** on a **100% free Google Colab instance** (NVIDIA Tesla T4 GPU, 15 GB VRAM) in **~2.5 to 4.5 minutes**.
 
 ---
 
@@ -97,7 +97,7 @@ Click the badge below to run directly in Google Colab:
  
 Designed like modern frontier video tools (Meta Movie Gen / Llama): minimal prompt bar, inspiration chips, and simple length pills (`2s`, `3s`, `5s`). All hyperparameters (spatial resolution, latent tiling, UniPC steps, negative prompts, guidance scale) are pre-calibrated to optimal hardware settings so the user just types a prompt and hits **Create**.
 
-- **🔊 Automatic Sound Track:** When enabled, synthesizes an acoustic track matching the video prompt via **AudioLDM 2** and seamlessly muxes it with ffmpeg (`-c:v copy -c:a aac`).
+- **🔊 Automatic Sound Track:** When enabled, synthesizes an acoustic track matching the video prompt via **AudioLDM** and seamlessly muxes it with ffmpeg (`-c:v copy -c:a aac`).
 - **⏱️ 2s Clip (~4 min):** `624x352`, 33 frames (16 fps), 16 UniPC steps.
 - **⏱️ 3s Clip (~4 min):** `512x320`, 49 frames (16 fps), 15 UniPC steps.
 - **⏱️ 5s Full Clip (~9 min):** `512x320`, 81 frames (16 fps), 15 UniPC steps.
