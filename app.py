@@ -87,9 +87,9 @@ def infer_video(
     steps: int,
     guidance_scale: float,
     seed: int,
-    progress=gr.Progress(track_tqdm=True),
+    progress=gr.Progress(),  # Do NOT use track_tqdm=True (causes Colab System RAM OOM)
 ):
-    """Callback for the Gradio interface to trigger video synthesis."""
+    """Callback for the Gradio interface to trigger video synthesis without memory leaks."""
     if not prompt or not prompt.strip():
         raise gr.Error("Please enter a text prompt.")
 
@@ -98,6 +98,10 @@ def infer_video(
 
     pipe = get_or_load_pipeline()
     output_filename = f"wan2_1_output_{actual_seed}.mp4"
+
+    def step_callback(pipeline, step, timestep, callback_kwargs):
+        progress((step + 1) / int(steps), desc=f"Denoising step {step + 1}/{steps}...")
+        return callback_kwargs
 
     try:
         progress(0.05, desc="Encoding prompt text with UMT5-XXL...")
@@ -113,6 +117,7 @@ def infer_video(
             seed=actual_seed,
             output_path=output_filename,
             fps=16,
+            callback=step_callback,
         )
         vram_info = get_gpu_memory_summary()
         return video_path, f"✓ Generation complete! Seed: {actual_seed} | {vram_info}"
@@ -121,6 +126,8 @@ def infer_video(
         error_msg = f"Generation error: {str(e)}"
         print(f"[Error] {error_msg}")
         return None, error_msg
+    finally:
+        clear_cuda_cache()
 
 
 def create_ui():

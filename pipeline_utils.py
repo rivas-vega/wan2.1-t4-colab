@@ -262,9 +262,10 @@ def generate_video(
     seed: Optional[int] = None,
     output_path: str = "output_video.mp4",
     fps: int = 16,
+    callback=None,
 ) -> str:
     """
-    Generate a video sequence and export to MP4.
+    Generate a video sequence and export to MP4 with strict memory cleanup.
 
     Args:
         pipe: Initialized WanPipeline.
@@ -278,6 +279,7 @@ def generate_video(
         seed: Random seed for reproducibility (-1 or None for random).
         output_path: Filepath where the MP4 video will be saved.
         fps: Playback framerate.
+        callback: Optional callback_on_step_end for progress tracking without memory leaks.
 
     Returns:
         Path to the saved MP4 video.
@@ -300,23 +302,35 @@ def generate_video(
     if seed is not None and seed >= 0:
         generator = torch.Generator(device="cpu").manual_seed(seed)
 
-    with torch.inference_mode():
-        output = pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            height=height,
-            width=width,
-            num_frames=num_frames,
-            num_inference_steps=steps,
-            guidance_scale=guidance_scale,
-            generator=generator,
-        )
+    pipe_kwargs = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "height": height,
+        "width": width,
+        "num_frames": num_frames,
+        "num_inference_steps": steps,
+        "guidance_scale": guidance_scale,
+        "generator": generator,
+    }
+    if callback is not None:
+        pipe_kwargs["callback_on_step_end"] = callback
 
-    frames = output.frames[0] if hasattr(output, "frames") else output.images[0]
+    output = None
+    frames = None
+    try:
+        with torch.inference_mode():
+            output = pipe(**pipe_kwargs)
+        frames = output.frames[0] if hasattr(output, "frames") else output.images[0]
 
-    from diffusers.utils import export_to_video
-    export_to_video(frames, output_path, fps=fps)
-    clear_cuda_cache()
+        from diffusers.utils import export_to_video
+        export_to_video(frames, output_path, fps=fps)
+    finally:
+        # Crucial for Colab 12.7GB RAM: immediately deallocate huge 3D tensor objects
+        if output is not None:
+            del output
+        if frames is not None:
+            del frames
+        clear_cuda_cache()
 
     print(f"[Generation] Video exported to {output_path}. {get_gpu_memory_summary()}")
     return output_path
