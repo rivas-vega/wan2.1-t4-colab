@@ -9,6 +9,9 @@ import os
 import random
 import gradio as gr
 
+# Restrict Linux glibc allocator heap arena hoarding in container environments (Colab)
+os.environ["MALLOC_TRIM_THRESHOLD_"] = "65536"
+
 # Prevent Colab torchao import conflict
 try:
     import diffusers.utils.import_utils as _iu

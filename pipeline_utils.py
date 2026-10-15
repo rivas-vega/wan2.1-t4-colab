@@ -12,6 +12,9 @@ import gc
 import torch
 from typing import Optional, Tuple
 
+# Restrict Linux glibc allocator heap arena hoarding in container environments (Colab)
+os.environ["MALLOC_TRIM_THRESHOLD_"] = "65536"
+
 
 def get_gpu_memory_summary() -> str:
     """Return formatted GPU VRAM usage if CUDA is available."""
@@ -28,11 +31,17 @@ def get_gpu_memory_summary() -> str:
 
 
 def clear_cuda_cache():
-    """Aggressive memory collection to prevent fragmentation on T4."""
+    """Aggressive memory collection to prevent fragmentation on T4 and Colab Host RAM."""
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
+    # Force Linux glibc to release freed heap arenas back to the kernel immediately
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 
 def setup_turing_cuda_optimizations():
@@ -201,6 +210,9 @@ def load_wan_t4_pipeline(
             pipe.vae.enable_tiling()
         if hasattr(pipe.vae, "enable_slicing"):
             pipe.vae.enable_slicing()
+
+    # Flush freed loading/quantization buffers and trim glibc heap memory
+    clear_cuda_cache()
 
     print(f"[Wan 2.1 Loader] Pipeline ready ({quantization.upper()} mode). {get_gpu_memory_summary()}")
     return pipe
