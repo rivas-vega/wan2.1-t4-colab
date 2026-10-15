@@ -90,7 +90,6 @@ def infer_video(
     steps: int,
     guidance_scale: float,
     seed: int,
-    progress=gr.Progress(),  # Do NOT use track_tqdm=True (causes Colab System RAM OOM)
 ):
     """Callback for the Gradio interface to trigger video synthesis without memory leaks."""
     if not prompt or not prompt.strip():
@@ -102,12 +101,7 @@ def infer_video(
     pipe = get_or_load_pipeline()
     output_filename = f"wan2_1_output_{actual_seed}.mp4"
 
-    def step_callback(pipeline, step, timestep, callback_kwargs):
-        progress((step + 1) / int(steps), desc=f"Denoising step {step + 1}/{steps}...")
-        return callback_kwargs
-
     try:
-        progress(0.05, desc="Encoding prompt text with UMT5-XXL...")
         video_path = generate_video(
             pipe=pipe,
             prompt=prompt,
@@ -120,7 +114,7 @@ def infer_video(
             seed=actual_seed,
             output_path=output_filename,
             fps=16,
-            callback=step_callback,
+            callback=None,
         )
         vram_info = get_gpu_memory_summary()
         return video_path, f"✓ Generation complete! Seed: {actual_seed} | {vram_info}"
@@ -324,4 +318,4 @@ def create_ui():
 if __name__ == "__main__":
     demo = create_ui()
     # share=True creates a public gradio.live URL accessible from any device!
-    demo.queue().launch(share=True, inbrowser=True)
+    demo.queue(default_concurrency_limit=1).launch(share=True, inbrowser=True)
