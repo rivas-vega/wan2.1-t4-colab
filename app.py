@@ -77,8 +77,12 @@ def apply_preset(preset_name: str):
         return "512x320 (Widescreen 16:9 - Fast Draft, ~1.5 min)", 17, 15, 5.0
     elif "Balanced" in preset_name:
         return "624x352 (Widescreen 16:9 - Balanced, ~3 min)", 25, 16, 5.0
+    elif "3-Second" in preset_name or "3s" in preset_name:
+        return "512x320 (Widescreen 16:9 - Fast Draft, ~1.5 min)", 49, 15, 5.0
+    elif "5-Second" in preset_name or "5s" in preset_name:
+        return "512x320 (Widescreen 16:9 - Fast Draft, ~1.5 min)", 81, 15, 5.0
     elif "Cinematic" in preset_name or "High" in preset_name:
-        return "832x480 (Cinematic 16:9 - High Quality, ~8-14 min)", 33, 20, 5.0
+        return "832x480 (Cinematic 16:9 - High Quality, ~8-14 min)", 25, 18, 5.0
     return "624x352 (Widescreen 16:9 - Balanced, ~3 min)", 25, 16, 5.0
 
 
@@ -192,12 +196,13 @@ def create_ui():
                     preset_dropdown = gr.Dropdown(
                         label="⚡ Speed / Quality Preset",
                         choices=[
-                            "⚡ Fast Draft (~1.5 min) [512x320, 17f, 15st]",
-                            "⚡ Balanced [Recommended] (~3 min) [624x352, 25f, 16st]",
-                            "🎬 Cinematic Standard (~8 min) [832x480, 25f, 18st]",
-                            "💎 High Quality (~14 min) [832x480, 33f, 20st]",
+                            "⚡ Fast Draft (~1.5 min) [512x320, 17f (1s), 15st]",
+                            "⚡ Balanced [Recommended] (~3 min) [624x352, 25f (1.5s), 16st]",
+                            "⏱️ 3-Second Clip (~5 min) [512x320, 49f (3s), 15st]",
+                            "🎬 5-Second Full Clip (~9 min) [512x320, 81f (5s), 15st]",
+                            "💎 Cinematic 480p (~8 min) [832x480, 25f (1.5s), 18st]",
                         ],
-                        value="⚡ Balanced [Recommended] (~3 min) [624x352, 25f, 16st]",
+                        value="⚡ Balanced [Recommended] (~3 min) [624x352, 25f (1.5s), 16st]",
                     )
 
                 with gr.Row():
@@ -207,9 +212,9 @@ def create_ui():
                         value="624x352 (Widescreen 16:9 - Balanced, ~3 min)",
                     )
                     frames_slider = gr.Slider(
-                        label="Frames (25 ≈ 1.5s, 33 ≈ 2s @ 16fps)",
+                        label="Frames (17 ≈ 1s, 25 ≈ 1.5s, 33 ≈ 2s, 49 ≈ 3s, 81 ≈ 5s @ 16fps)",
                         minimum=17,
-                        maximum=49,
+                        maximum=81,
                         step=8,
                         value=25,
                     )
