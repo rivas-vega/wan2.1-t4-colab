@@ -98,13 +98,17 @@ THEME = gr.themes.Base(
 _GRADIO6 = "css" in inspect.signature(gr.Blocks.launch).parameters
 
 
-def _hint(length: str, has_sound: bool) -> str:
-    minutes = DURATION_PRESETS[length]["eta_min"]
-    return f"About {minutes} min on a free T4" + (" · includes sound" if has_sound else "")
+def _hint(length: str, has_sound: bool = False) -> str:
+    preset = DURATION_PRESETS.get(length, {})
+    minutes = preset.get("eta_min", 4.0)
+    desc = preset.get("desc", "")
+    sound_suffix = " · includes sound" if has_sound else ""
+    return f"{desc} (~{minutes} min on free T4){sound_suffix}"
 
 
 def build_demo(pipe, audio_pipe=None, output_dir: str = "outputs") -> gr.Blocks:
     has_sound = audio_pipe is not None
+    default_length = "Cinematic 480p (HQ)"
 
     def run(prompt: str, length: str):
         prompt = (prompt or "").strip()
@@ -115,7 +119,7 @@ def build_demo(pipe, audio_pipe=None, output_dir: str = "outputs") -> gr.Blocks:
 
     blocks_kwargs = {} if _GRADIO6 else {"theme": THEME, "css": CSS}
     with gr.Blocks(title="Wan 2.1", **blocks_kwargs) as demo:
-        gr.HTML('<div id="brand"><span class="name">Wan 2.1</span><span class="sub">Text to video</span></div>')
+        gr.HTML('<div id="brand"><span class="name">Wan 2.1</span><span class="sub">Open Video Synthesis on Free T4</span></div>')
 
         video = gr.Video(show_label=False, autoplay=True, loop=True, interactive=False, elem_id="stage")
         status = gr.Markdown("", elem_id="status")
@@ -123,16 +127,16 @@ def build_demo(pipe, audio_pipe=None, output_dir: str = "outputs") -> gr.Blocks:
         with gr.Group(elem_id="composer"):
             prompt = gr.Textbox(
                 show_label=False, container=False, lines=2, max_lines=6,
-                placeholder="Describe a scene…", elem_id="prompt",
+                placeholder="Describe a cinematic scene (e.g. lighting, motion, camera angle)…", elem_id="prompt",
             )
             with gr.Row(elem_id="controls"):
                 length = gr.Radio(
-                    choices=list(DURATION_PRESETS.keys()), value="2s",
+                    choices=list(DURATION_PRESETS.keys()), value=default_length,
                     show_label=False, container=False, elem_id="length",
                 )
                 create = gr.Button("Create", variant="primary", scale=0, elem_id="create")
 
-        hint = gr.Markdown(_hint("2s", has_sound), elem_id="hint")
+        hint = gr.Markdown(_hint(default_length, has_sound), elem_id="hint")
 
         with gr.Row(elem_id="chips"):
             for label, text in EXAMPLES.items():
@@ -152,12 +156,7 @@ def launch(demo: gr.Blocks, share: bool = True, **kwargs):
 
 
 if __name__ == "__main__":
-    from pipeline_utils import load_audio_pipeline, load_wan_t4_pipeline
+    from pipeline_utils import load_wan_t4_pipeline
 
     wan = load_wan_t4_pipeline()
-    audio = None
-    try:
-        audio = load_audio_pipeline()
-    except Exception as e:
-        print(f"[sound] disabled: {type(e).__name__}: {e}")
-    launch(build_demo(wan, audio), inbrowser=True)
+    launch(build_demo(wan), inbrowser=True)

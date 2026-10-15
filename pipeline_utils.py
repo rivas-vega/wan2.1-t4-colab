@@ -81,7 +81,7 @@ def setup_turing_cuda_optimizations():
 
 def load_wan_t4_pipeline(
     model_id: str = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
-    quantization: str = "4bit",  # "4bit" (Default: 100% crash-proof on Colab 12.7GB Host RAM)
+    quantization: str = "fast_fp16",  # "fast_fp16" (Native FP16 DiT + 4-bit UMT5: best quality, 1.8x faster on T4)
     dtype: torch.dtype = torch.float16,
     scheduler_type: str = "unipc",  # "unipc" (higher-order solver) or "euler"
     hf_token: Optional[str] = None,
@@ -108,8 +108,10 @@ def load_wan_t4_pipeline(
     setup_turing_cuda_optimizations()
     clear_cuda_cache()
 
-    # Enable high-performance transfer backends
-    os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
+    # Prevent Colab 12.7 GB Host RAM crash: disable Xet in-memory chunk reassembly
+    # Standard HTTP chunk streaming writes directly to disk without multi-GB memory buffers
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    os.environ.pop("HF_XET_HIGH_PERFORMANCE", None)
     if hf_token and hf_token.strip():
         os.environ["HF_TOKEN"] = hf_token.strip()
 
@@ -364,15 +366,15 @@ def generate_video(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Sound: AudioLDM (text-to-audio) + ffmpeg muxing
+# Sound: AudioLDM 2 (text-to-audio) + ffmpeg muxing
 # ══════════════════════════════════════════════════════════════════════════════
-# Wan 2.1 is a silent video model. When audio is enabled, the lightweight
-# AudioLDM-s (cvssp/audioldm-s-full-v2, ~800 MB weights, 16 kHz) synthesizes
-# an acoustic track matching the prompt, and ffmpeg muxes it into the MP4.
-# Because weights are ~800 MB in fp16, it loads directly into GPU VRAM (10+ GB free
-# while Wan is offloaded), preserving Colab's 12.7 GB host RAM budget.
+# Wan 2.1 is a silent video model. After the video is rendered, AudioLDM 2
+# (cvssp/audioldm2, ~1.1 B params, not gated, 16 kHz) synthesises a sound track
+# of exactly the same length from the same prompt, and ffmpeg muxes it in.
+# fp16 weights ≈ 2.3 GB, kept resident on the GPU (the T4 has ~10 GB of headroom
+# while Wan is offloaded), so it never touches Colab's 12.7 GB host RAM budget.
 
-AUDIO_MODEL_ID = "cvssp/audioldm-s-full-v2"
+AUDIO_MODEL_ID = "cvssp/audioldm2"
 AUDIO_NEGATIVE_PROMPT = "low quality, noise, distortion, muffled, clipping, speech, talking"
 FPS = 16
 
@@ -387,22 +389,33 @@ WAN_NEGATIVE_PROMPT = (
 
 # High-fidelity hardware-tuned settings for Tesla T4. num_frames must be 4k+1.
 DURATION_PRESETS = {
-    "2s": dict(width=624, height=352, num_frames=25, steps=20, eta_min=3.5),
-    "2s HQ (480p)": dict(width=832, height=480, num_frames=25, steps=20, eta_min=6.5),
-    "3s": dict(width=624, height=352, num_frames=49, steps=18, eta_min=5.5),
-    "5s": dict(width=512, height=320, num_frames=81, steps=16, eta_min=8.0),
+    "Cinematic 480p (HQ)": dict(width=832, height=480, num_frames=25, steps=22, eta_min=6.5, desc="Native 480p widescreen, maximum visual fidelity"),
+    "Widescreen Fast (1.5s)": dict(width=624, height=352, num_frames=25, steps=20, eta_min=3.5, desc="Fast iteration, crisp 16:9 widescreen"),
+    "Extended Motion (3.0s)": dict(width=624, height=352, num_frames=49, steps=20, eta_min=6.0, desc="3-second extended motion scene"),
 }
+
+
+def get_preset(name: str) -> dict:
+    """Resolve preset by canonical name or backward-compatible alias."""
+    aliases = {
+        "2s": "Widescreen Fast (1.5s)",
+        "2s HQ (480p)": "Cinematic 480p (HQ)",
+        "3s": "Extended Motion (3.0s)",
+        "5s": "Extended Motion (3.0s)",
+        "480p": "Cinematic 480p (HQ)",
+    }
+    canonical = aliases.get(name, name)
+    return DURATION_PRESETS.get(canonical, DURATION_PRESETS["Cinematic 480p (HQ)"])
 
 _GENERATION_LOCK = threading.Lock()  # one job at a time on a single T4
 
 
 def load_audio_pipeline(device: str = "cuda", dtype: torch.dtype = torch.float16):
-    """Load lightweight AudioLDM in fp16 directly onto the GPU (~800 MB download)."""
-    from diffusers import AudioLDMPipeline
+    """Load AudioLDM 2 in fp16 directly onto the GPU (safetensors only, ~4.5 GB download)."""
+    from diffusers import AudioLDM2Pipeline
 
-    audio_pipe = AudioLDMPipeline.from_pretrained(AUDIO_MODEL_ID, torch_dtype=dtype)
-    if torch.cuda.is_available() and device == "cuda":
-        audio_pipe = audio_pipe.to("cuda")
+    audio_pipe = AudioLDM2Pipeline.from_pretrained(AUDIO_MODEL_ID, torch_dtype=dtype, use_safetensors=True)
+    audio_pipe = audio_pipe.to(device)
     audio_pipe.set_progress_bar_config(disable=True)
     clear_cuda_cache()
     return audio_pipe
@@ -416,7 +429,7 @@ def _ffmpeg_exe() -> str:
         return "ffmpeg"
 
 
-def generate_sound(audio_pipe, prompt: str, duration_s: float, wav_path: str, seed: int, steps: int = 25) -> str:
+def generate_sound(audio_pipe, prompt: str, duration_s: float, wav_path: str, seed: int, steps: int = 50) -> str:
     """Render a mono 16 kHz WAV of `duration_s` seconds that matches the video prompt."""
     import numpy as np
     from scipy.io import wavfile
@@ -432,10 +445,7 @@ def generate_sound(audio_pipe, prompt: str, duration_s: float, wav_path: str, se
         ).audios[0]
     audio = np.asarray(audio, dtype=np.float32).squeeze()
     peak = float(np.abs(audio).max()) or 1.0
-    sr = 16000
-    if hasattr(audio_pipe, "vocoder") and hasattr(audio_pipe.vocoder, "config"):
-        sr = getattr(audio_pipe.vocoder.config, "sampling_rate", 16000)
-    wavfile.write(wav_path, sr, (audio / peak * 0.9 * 32767).astype(np.int16))
+    wavfile.write(wav_path, audio_pipe.vocoder.config.sampling_rate, (audio / peak * 0.9 * 32767).astype(np.int16))
     return wav_path
 
 
@@ -457,7 +467,7 @@ def mux_audio(video_path: str, wav_path: str, output_path: str, duration_s: floa
     return output_path
 
 
-def create_clip(pipe, audio_pipe, prompt: str, duration: str = "2s", seed: int = -1, output_dir: str = "outputs"):
+def create_clip(pipe, audio_pipe=None, prompt: str = "", duration: str = "Cinematic 480p (HQ)", seed: int = -1, output_dir: str = "outputs"):
     """
     Prompt in, finished MP4 out (video + sound when `audio_pipe` is given).
 
@@ -466,7 +476,12 @@ def create_clip(pipe, audio_pipe, prompt: str, duration: str = "2s", seed: int =
     """
     from diffusers.utils import export_to_video
 
-    preset = DURATION_PRESETS.get(duration, DURATION_PRESETS["2s"])
+    # If called positionally as create_clip(pipe, prompt, ...)
+    if isinstance(audio_pipe, str) and not prompt:
+        prompt = audio_pipe
+        audio_pipe = None
+
+    preset = get_preset(duration)
     seed = random.randint(0, 2**31 - 1) if seed is None or int(seed) < 0 else int(seed)
     os.makedirs(output_dir, exist_ok=True)
     stem = os.path.join(output_dir, f"wan_{int(time.time())}_{seed}")

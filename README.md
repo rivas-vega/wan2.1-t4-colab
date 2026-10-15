@@ -6,7 +6,7 @@
 [![Model: Wan 2.1](https://img.shields.io/badge/Model-Wan2.1--1.3B-blue.svg)](https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers)
 [![GPU: Tesla T4](https://img.shields.io/badge/GPU-Tesla%20T4%20(15GB)-green.svg)]()
 
-A hardware-optimized pipeline and interactive **Meta-style Gradio UI** to generate high-fidelity videos **with synchronized audio** using Alibaba's **Wan 2.1 (T2V-1.3B)** and **AudioLDM** on a **100% free Google Colab instance** (NVIDIA Tesla T4 GPU, 15 GB VRAM) in **~2.5 to 4.5 minutes**.
+A hardware-optimized pipeline and interactive **Meta-style Gradio UI** to generate high-fidelity videos using Alibaba's **Wan 2.1 (T2V-1.3B)** on a **100% free Google Colab instance** (NVIDIA Tesla T4 GPU, 15 GB VRAM) with **Native FP16 DiT**, **4-bit UMT5 compression**, and **UniPC higher-order scheduling**.
 
 ---
 
@@ -87,20 +87,19 @@ Click the badge below to run directly in Google Colab:
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/rivas-vega/wan2.1-t4-colab/blob/main/wan2_1_t4_colab_free_inference.ipynb)
 
 1. Verify GPU: **Runtime $\to$ Change runtime type $\to$ T4 GPU**.
-2. Run **Cell 1 & 2** (installs diffusers with `hf-transfer` for fast downloads).
-3. Run **Cell 3** (loads hardware-optimized FP16 pipeline with UniPC solver).
-4. Run **Cell 4** for a quick 3-minute test, or **Cell 5** to launch the **Gradio Web Interface** with a shareable public URL (`share=True`).
+2. Run **Cell 1 & 2** (installs dependencies with direct-to-disk streaming).
+3. Run **Cell 3** (loads hardware-optimized Wan 2.1 in Native FP16 DiT + 4-bit UMT5).
+4. Run **Cell 4** to launch the interactive **Meta-style Gradio UI** (`share=True`), or **Cell 5** to generate directly inside the notebook.
 
 ---
 
 ## 🎛️ Minimal Meta-Style Web Application
  
-Designed like modern frontier video tools (Meta Movie Gen / Llama): minimal prompt bar, inspiration chips, and simple length pills (`2s`, `3s`, `5s`). All hyperparameters (spatial resolution, latent tiling, UniPC steps, negative prompts, guidance scale) are pre-calibrated to optimal hardware settings so the user just types a prompt and hits **Create**.
+Designed like modern frontier video tools (Meta Movie Gen / Llama): minimal prompt bar, inspiration chips, and simple quality/length pills. All hyperparameters (spatial resolution, latent tiling, UniPC steps, negative prompts, guidance scale) are pre-calibrated to optimal hardware settings so the user just types a prompt and hits **Create**.
 
-- **🔊 Automatic Sound Track:** When enabled, synthesizes an acoustic track matching the video prompt via **AudioLDM** and seamlessly muxes it with ffmpeg (`-c:v copy -c:a aac`).
-- **⏱️ 2s Clip (~4 min):** `624x352`, 33 frames (16 fps), 16 UniPC steps.
-- **⏱️ 3s Clip (~4 min):** `512x320`, 49 frames (16 fps), 15 UniPC steps.
-- **⏱️ 5s Full Clip (~9 min):** `512x320`, 81 frames (16 fps), 15 UniPC steps.
+- **🎬 Cinematic 480p (HQ) [Recommended]:** `832x480` (16:9 native 480p), 25 frames (16 fps), 22 UniPC steps (~6.5 min on T4). Maximum visual fidelity, sharp textures, realistic lighting.
+- **⚡ Widescreen Fast (1.5s):** `624x352` (16:9 widescreen), 25 frames (16 fps), 20 UniPC steps (~3.5 min on T4). Fast preview with clean aspect ratio.
+- **⏱️ Extended Motion (3.0s):** `624x352` (16:9 widescreen), 49 frames (16 fps), 20 UniPC steps (~6.0 min on T4). Sustained temporal motion.
 
 ### Running Locally / On-Premise
 
