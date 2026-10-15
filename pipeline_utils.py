@@ -9,11 +9,29 @@ Enables running Alibaba's Wan 2.1 (T2V-1.3B) in free Google Colab instances by c
 
 import os
 import gc
+import time
+import random
+import ctypes
+import threading
+import subprocess
 import torch
 from typing import Optional, Tuple
 
-# Restrict Linux glibc allocator heap arena hoarding in container environments (Colab)
-os.environ["MALLOC_TRIM_THRESHOLD_"] = "65536"
+# ── Host-RAM hygiene for Colab (12.7 GB) ──────────────────────────────────────
+# glibc only reads MALLOC_* environment variables at process start-up, so setting
+# them from Python has no effect. mallopt() changes the allocator at runtime:
+#   M_MMAP_THRESHOLD (-3): buffers > 1 MB go through mmap and are returned to the
+#                          OS on free (disables glibc's dynamic threshold, which
+#                          otherwise grows to 32 MB and parks tensors in the heap).
+#   M_TRIM_THRESHOLD (-1): trim the top of the heap once 64 KB are free.
+#   M_ARENA_MAX      (-8): cap per-thread arenas (Gradio runs jobs in worker threads).
+try:
+    _LIBC = ctypes.CDLL("libc.so.6")
+    _LIBC.mallopt(-3, 1 << 20)
+    _LIBC.mallopt(-1, 64 << 10)
+    _LIBC.mallopt(-8, 2)
+except OSError:  # non-glibc platform (macOS / Windows)
+    _LIBC = None
 
 
 def get_gpu_memory_summary() -> str:
@@ -36,12 +54,9 @@ def clear_cuda_cache():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
-    # Force Linux glibc to release freed heap arenas back to the kernel immediately
-    try:
-        import ctypes
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-    except Exception:
-        pass
+    # Force glibc to hand freed heap pages back to the kernel immediately
+    if _LIBC is not None:
+        _LIBC.malloc_trim(0)
 
 
 def setup_turing_cuda_optimizations():
@@ -346,3 +361,151 @@ def generate_video(
 
     print(f"[Generation] Video exported to {output_path}. {get_gpu_memory_summary()}")
     return output_path
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Sound: AudioLDM 2 (text-to-audio) + ffmpeg muxing
+# ══════════════════════════════════════════════════════════════════════════════
+# Wan 2.1 is a silent video model. After the video is rendered, AudioLDM 2
+# (cvssp/audioldm2, ~1.1 B params, not gated, 16 kHz) synthesises a sound track
+# of exactly the same length from the same prompt, and ffmpeg muxes it in.
+# fp16 weights ≈ 2.3 GB, kept resident on the GPU (the T4 has ~10 GB of headroom
+# while Wan is offloaded), so it never touches Colab's 12.7 GB host RAM budget.
+
+AUDIO_MODEL_ID = "cvssp/audioldm2"
+AUDIO_NEGATIVE_PROMPT = "low quality, noise, distortion, muffled, clipping, speech, talking"
+FPS = 16
+
+# Wan's official negative prompt (English translation from the Diffusers docs)
+WAN_NEGATIVE_PROMPT = (
+    "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, "
+    "static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, "
+    "extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, "
+    "fused fingers, still picture, messy background, three legs, many people in the background, "
+    "walking backwards"
+)
+
+# Fixed, tuned settings. num_frames must be 4k+1 (Wan's VAE compresses time 4x).
+DURATION_PRESETS = {
+    "2s": dict(width=624, height=352, num_frames=33, steps=16, eta_min=4),
+    "3s": dict(width=512, height=320, num_frames=49, steps=15, eta_min=4),
+    "5s": dict(width=512, height=320, num_frames=81, steps=15, eta_min=9),
+}
+
+_GENERATION_LOCK = threading.Lock()  # one job at a time on a single T4
+
+
+def load_audio_pipeline(device: str = "cuda", dtype: torch.dtype = torch.float16):
+    """Load AudioLDM 2 in fp16 directly onto the GPU (safetensors only, ~4.5 GB download)."""
+    from diffusers import AudioLDM2Pipeline
+
+    audio_pipe = AudioLDM2Pipeline.from_pretrained(AUDIO_MODEL_ID, torch_dtype=dtype, use_safetensors=True)
+    audio_pipe = audio_pipe.to(device)
+    audio_pipe.set_progress_bar_config(disable=True)
+    clear_cuda_cache()
+    return audio_pipe
+
+
+def _ffmpeg_exe() -> str:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
+def generate_sound(audio_pipe, prompt: str, duration_s: float, wav_path: str, seed: int, steps: int = 50) -> str:
+    """Render a mono 16 kHz WAV of `duration_s` seconds that matches the video prompt."""
+    import numpy as np
+    from scipy.io import wavfile
+
+    text = f"{prompt.strip().rstrip('.')}. Realistic sound effects and ambience, high quality audio."
+    with torch.inference_mode():
+        audio = audio_pipe(
+            prompt=text,
+            negative_prompt=AUDIO_NEGATIVE_PROMPT,
+            num_inference_steps=steps,
+            audio_length_in_s=float(duration_s),
+            generator=torch.Generator(device="cpu").manual_seed(seed),
+        ).audios[0]
+    audio = np.asarray(audio, dtype=np.float32).squeeze()
+    peak = float(np.abs(audio).max()) or 1.0
+    wavfile.write(wav_path, audio_pipe.vocoder.config.sampling_rate, (audio / peak * 0.9 * 32767).astype(np.int16))
+    return wav_path
+
+
+def mux_audio(video_path: str, wav_path: str, output_path: str, duration_s: float) -> str:
+    """Copy the H.264 stream untouched and add an AAC track with short fades."""
+    fade = min(0.3, duration_s / 4)
+    subprocess.run(
+        [
+            _ffmpeg_exe(), "-y", "-loglevel", "error",
+            "-i", video_path, "-i", wav_path,
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            "-af", f"afade=t=in:d=0.05,afade=t=out:st={duration_s - fade:.2f}:d={fade:.2f}",
+            "-shortest", "-movflags", "+faststart", output_path,
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return output_path
+
+
+def create_clip(pipe, audio_pipe, prompt: str, duration: str = "3s", seed: int = -1, output_dir: str = "outputs"):
+    """
+    Prompt in, finished MP4 out (video + sound when `audio_pipe` is given).
+
+    Returns:
+        (mp4_path, seed, elapsed_seconds, has_sound)
+    """
+    from diffusers.utils import export_to_video
+
+    preset = DURATION_PRESETS.get(duration, DURATION_PRESETS["3s"])
+    seed = random.randint(0, 2**31 - 1) if seed is None or int(seed) < 0 else int(seed)
+    os.makedirs(output_dir, exist_ok=True)
+    stem = os.path.join(output_dir, f"wan_{int(time.time())}_{seed}")
+    silent_path, wav_path, final_path = f"{stem}_silent.mp4", f"{stem}.wav", f"{stem}.mp4"
+    duration_s = preset["num_frames"] / FPS
+
+    with _GENERATION_LOCK:
+        t0 = time.time()
+        clear_cuda_cache()
+        output = frames = None
+        try:
+            with torch.inference_mode():
+                output = pipe(
+                    prompt=prompt,
+                    negative_prompt=WAN_NEGATIVE_PROMPT,
+                    width=preset["width"],
+                    height=preset["height"],
+                    num_frames=preset["num_frames"],
+                    num_inference_steps=preset["steps"],
+                    guidance_scale=5.0,
+                    generator=torch.Generator(device="cpu").manual_seed(seed),
+                )
+            frames = output.frames[0]
+            export_to_video(frames, silent_path, fps=FPS)
+        finally:
+            del output, frames
+            clear_cuda_cache()
+
+        has_sound = False
+        if audio_pipe is not None:
+            try:
+                generate_sound(audio_pipe, prompt, duration_s, wav_path, seed)
+                mux_audio(silent_path, wav_path, final_path, duration_s)
+                has_sound = True
+            except Exception as e:  # never lose the video because of the sound step
+                print(f"[sound] skipped: {type(e).__name__}: {e}")
+            finally:
+                clear_cuda_cache()
+
+        if has_sound:
+            for p in (silent_path, wav_path):
+                if os.path.exists(p):
+                    os.remove(p)
+        else:
+            os.replace(silent_path, final_path)
+
+        return final_path, seed, time.time() - t0, has_sound
