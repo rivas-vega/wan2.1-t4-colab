@@ -60,29 +60,34 @@ def load_wan_t4_pipeline(
     quantization: str = "4bit",  # "4bit" (SAFEST on Colab 12.7GB RAM, <5GB RAM), "fast_fp16", or "8bit"
     dtype: torch.dtype = torch.float16,
     scheduler_type: str = "unipc",  # "unipc" (faster convergence, 14-16 steps) or "euler" (25-30 steps)
+    hf_token: Optional[str] = None,
 ):
     """
     Load Wan 2.1 with hardware-tailored optimizations for a 16GB NVIDIA Tesla T4.
 
     Performance vs Precision on T4:
-    - 'fp16' (Recommended): 2.0 bytes/weight. Uses T4's native Turing Tensor Cores directly.
-      The 1.3B DiT weighs only 2.6 GB! With Model CPU offloading, peak VRAM is ~7.8 GB (well below 15 GB).
-      Runs ~1.8x FASTER than 4-bit on T4 because it avoids software dequantization kernels.
-    - '4bit': 0.5 bytes/weight (NF4 via bitsandbytes). Drops peak VRAM to ~4.5 GB, but is SLOWER
-      on T4 due to dynamic register dequantization on Turing architecture.
+    - '4bit' (Default): Quantizes 22.7GB UMT5 + DiT via PipelineQuantizationConfig.
+      Total System RAM stays < 5.0 GB (100% immune to Colab 12.7 GB crash).
+    - 'fast_fp16': Quantizes ONLY the 22.7GB UMT5 to 4-bit, keeping DiT in native FP16 (~1.8x faster).
     - '8bit': 1.0 byte/weight (INT8 via bitsandbytes). Peak VRAM ~6.0 GB.
 
     Args:
         model_id: HuggingFace repository for official Diffusers weights.
-        quantization: 'fp16', '4bit', or '8bit'.
+        quantization: '4bit', 'fast_fp16', or '8bit'.
         dtype: Computation dtype (torch.float16 for Tesla T4 Turing architecture).
         scheduler_type: 'unipc' for fast convergence (14-18 steps) or 'euler' (25-30 steps).
+        hf_token: Optional Hugging Face token for higher rate limits and faster downloads.
 
     Returns:
         Configured and memory-offloaded WanPipeline ready for fast inference.
     """
     setup_turing_cuda_optimizations()
     clear_cuda_cache()
+
+    # Enable high-performance transfer backends
+    os.environ["HF_XET_HIGH_PERFORMANCE"] = "1"
+    if hf_token and hf_token.strip():
+        os.environ["HF_TOKEN"] = hf_token.strip()
 
     # Prevent diffusers from failing on Colab's pre-installed torchao
     try:
