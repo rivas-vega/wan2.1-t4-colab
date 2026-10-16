@@ -13,11 +13,11 @@
 
 <br/>
 
-## Overview & Practical Utility
+## Overview
 
 Modern open-weights video foundation models such as **Alibaba Wan 2.1** ship with a **22.7 GB FP32 text encoder (`UMT5-XXL`)**, a **1.3B 3D Diffusion Transformer (`DiT`)**, and a **3D Causal Spatiotemporal `VAE`**. Standard `diffusers` pipelines assume workstation-class hardware (32–64 GB of System RAM and 24+ GB of GPU VRAM) and immediately crash free **Google Colab T4 instances** (`12.7 GB System RAM`, `15.0 GB VRAM`).
 
-This repository provides a **production-grade inference engine and minimalist web studio** engineered specifically for constrained cloud GPUs.
+This repository provides a **inference engine and minimalist web studio** engineered specifically for constrained cloud GPUs.
 
 <table>
   <tr>
@@ -33,7 +33,7 @@ This repository provides a **production-grade inference engine and minimalist we
       <br/>
     </td>
     <td width="62%" valign="top">
-      <h3>Why This Project Matters</h3>
+      <h3>Project</h3>
       <ul>
         <li><b>Zero-Cost Video Synthesis on Free Tier Hardware:</b> Enables researchers, creators, and developers to generate continuous <b>4.1-second (65-frame)</b> and <b>5.1-second (81-frame)</b> videos in native vertical (<code>9:16</code>) and widescreen (<code>16:9</code>) formats on a free Google Colab T4 without paid APIs or enterprise GPUs.</li>
         <li><b>True Live 3D Trajectory Preview:</b> Instead of generating a separate 2D preview image (which diverges from the 3D video due to full spatiotemporal attention), the studio decodes Frame 0 directly from the active solver's clean prediction ($\hat{x}_0^{(t)}$) at steps 8, 18, and 30 in <code>0.15s</code>—allowing immediate cancellation if framing or lighting is off.</li>
