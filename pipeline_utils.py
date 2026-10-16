@@ -105,6 +105,30 @@ def load_wan_t4_pipeline(
     Returns:
         Configured and memory-offloaded WanPipeline ready for fast inference.
     """
+    # If re-running in an existing Colab/Jupyter session where `pipe` is already loaded on GPU,
+    # reuse the GPU-resident weights in 0.1s and hot-upgrade the scheduler to FlowMatchEuler(shift=5.0)
+    # instead of re-allocating VRAM and triggering bitsandbytes CPU-dispatch errors.
+    import sys
+    main_mod = sys.modules.get("__main__")
+    if main_mod is not None:
+        existing = getattr(main_mod, "pipe", None) or getattr(main_mod, "wan", None)
+        if (
+            existing is not None
+            and getattr(existing, "transformer", None) is not None
+            and getattr(existing, "text_encoder", None) is not None
+            and getattr(existing, "vae", None) is not None
+        ):
+            try:
+                from diffusers import FlowMatchEulerDiscreteScheduler
+                existing.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+                    existing.scheduler.config, shift=5.0
+                )
+            except Exception:
+                pass
+            clear_cuda_cache()
+            print(f"[Wan 2.1 Loader] Reusing GPU-resident pipeline (FlowMatchEuler shift=5.0). {get_gpu_memory_summary()}")
+            return existing
+
     setup_turing_cuda_optimizations()
     clear_cuda_cache()
 
@@ -141,17 +165,16 @@ def load_wan_t4_pipeline(
         torch_dtype=torch.float32,
     )
 
-    # CRITICAL COLAB FIX (Zero Host RAM OOM):
-    # In Wan-AI/Wan2.1-T2V-1.3B-Diffusers, the text encoder (UMT5-XXL) is 22.7 GB in FP32!
-    # By loading it directly via transformers.BitsAndBytesConfig with device_map="auto",
-    # each safetensors shard is streamed straight into 4-bit NF4 on the GPU (~2.4 GB VRAM).
-    # This completely bypasses Host RAM and keeps Host RAM usage at ~2.5 GB!
+    # CRITICAL COLAB FIX (Zero Host RAM OOM & Zero CPU-Offload ValueError):
+    # Use explicit device_map={"": 0} instead of "auto" so accelerate never attempts to split
+    # 4-bit UMT5 modules onto CPU/disk when VRAM is fragmented.
     print(f"[Wan 2.1 Loader] Streaming 22.7GB UMT5 to GPU in 4-bit NF4 (2.4 GB VRAM, 0 GB Host RAM)...")
-    device_map = "auto" if torch.cuda.is_available() else None
+    device_map = {"": 0} if torch.cuda.is_available() else None
     t5_bnb = TransformersBitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=dtype,
+        llm_int8_enable_fp32_cpu_offload=True,
     )
     text_encoder = UMT5EncoderModel.from_pretrained(
         model_id,
@@ -724,6 +747,12 @@ def create_clip(pipe, audio_pipe=None, prompt: str = "", duration: str = "Reel 9
 
     with _GENERATION_LOCK:
         t0 = time.time()
+        try:
+            from diffusers import FlowMatchEulerDiscreteScheduler
+            if not isinstance(pipe.scheduler, FlowMatchEulerDiscreteScheduler) or getattr(pipe.scheduler.config, "shift", None) != 5.0:
+                pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(pipe.scheduler.config, shift=5.0)
+        except Exception:
+            pass
         clear_cuda_cache()
         output = frames = None
         prompt_embeds = neg_embeds = None
