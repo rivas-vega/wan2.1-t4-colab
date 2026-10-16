@@ -11,3 +11,4 @@ sentencepiece
 protobuf
 safetensors
 hf-transfer>=0.1.8
+Pillow<11.0.0

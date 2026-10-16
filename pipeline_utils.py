@@ -17,6 +17,16 @@ import subprocess
 import torch
 from typing import Optional, Tuple
 
+# ── Pillow typing failsafe for diffusers / peft ──────────────────────────────
+# In Pillow >= 11.1 / 12, internal typing _Ink was removed from PIL._typing,
+# breaking imports in diffusers.loaders.peft and torchvision.
+try:
+    import PIL._typing
+    if not hasattr(PIL._typing, "_Ink"):
+        PIL._typing._Ink = object
+except Exception:
+    pass
+
 # ── Host-RAM hygiene for Colab (12.7 GB) ──────────────────────────────────────
 # glibc only reads MALLOC_* environment variables at process start-up, so setting
 # them from Python has no effect. mallopt() changes the allocator at runtime:
@@ -178,6 +188,12 @@ def load_wan_t4_pipeline(
             class FqnToConfig:
                 def __init__(self, *args, **kwargs): pass
             torchao.quantization.FqnToConfig = FqnToConfig
+    except Exception:
+        pass
+    try:
+        import PIL._typing
+        if not hasattr(PIL._typing, "_Ink"):
+            PIL._typing._Ink = object
     except Exception:
         pass
 
