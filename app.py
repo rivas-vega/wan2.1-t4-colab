@@ -18,10 +18,10 @@ import gradio as gr
 from pipeline_utils import DURATION_PRESETS, create_clip
 
 EXAMPLES = {
-    "Tokyo Drift (Reel)": "Vertical Reel shot, sharp 8k, sleek metallic black supercar accelerating through neon-lit Shibuya rain, solid reflections on wet asphalt, photorealistic, cinematic camera tilt",
-    "Cyberpunk City": "Vertical mobile video, slow cinematic upward pan of a towering neon skyscraper in cyberpunk city, rain pouring, crisp architectural details, neon reflections, ultra-realistic",
-    "Turquoise Wave": "Vertical 9:16 drone shot tracking a massive turquoise barrel wave crashing onto black volcanic sand, crisp water spray, golden hour rim lighting, slow motion",
-    "Golden Espresso": "Vertical macro close-up of rich golden espresso pouring steadily into a clear glass cup, thick crema swirling, sharp lighting, photorealistic textures",
+    "Tokyo Rain (Reel)": "A matte-black sports car driving smoothly along a wet Tokyo street at night under soft streetlights",
+    "Coastal Wave": "Ocean waves rolling gently onto black volcanic sand at sunset with warm golden light",
+    "Street Portrait": "A young woman in a beige trench coat walking along a quiet Paris sidewalk in soft morning light",
+    "Espresso Pour": "Warm espresso pouring slowly into a clear glass cup on a wooden cafe table in natural morning light",
 }
 
 CSS = """
