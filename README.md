@@ -38,44 +38,44 @@ $$\text{FLOPs}_{\text{attention}} \propto 30 \times 4 \times S^2 \times d \quad 
 
 ---
 
-### 2. The Quantization Trap: Why 4-bit NF4 is Slower Than Native FP16 on Tesla T4
+### 2. The Memory Architecture: Why GPU-Resident DiT + 4-bit UMT5 Eliminates Host RAM OOM
 
-| Dimension | Native FP16 (2.0 bytes/weight) | 4-bit NF4 bitsandbytes (0.5 bytes/weight) |
-| :--- | :--- | :--- |
-| **DiT 1.3B Weight Size** | **2.6 GB** | **~750 MB** |
-| **Hardware Path on T4** | Native Turing FP16 Tensor Cores (65 TFLOPS) | Dynamic software dequantization in CUDA registers |
-| **Compute Overhead** | Zero dequantization latency | **~1.8x latency multiplier per linear layer** |
-| **Peak VRAM with CPU Offload** | **~7.8 GB** (well within 15 GB) | ~4.5 GB |
-| **Speed Recommendation on T4** | **⚡ FASTEST (~1.8x faster per step)** | Slower (only needed if VRAM < 8 GB) |
+| Component | Precision | Size | Device | Hardware Role |
+| :--- | :--- | :--- | :--- | :--- |
+| **UMT5-XXL Text Encoder** | 4-bit NF4 (`bitsandbytes`) | **2.4 GB** | `cuda:0` | Shards streamed directly to GPU, 0 GB Host RAM footprint |
+| **Wan 2.1 DiT 1.3B** | Native FP16 (torch.float16) | **2.6 GB** | `cuda:0` | Native Turing FP16 Tensor Cores (65 TFLOPS, no dequant latency) |
+| **3D Causal VAE** | FP32 (spatial/temporal tiling) | **~480 MB** | `cuda:0` | Overlapping latent chunk decoding, peak VRAM < 3 GB |
+| **Total Static Footprint** | Combined | **5.5 GB** | **GPU VRAM** | **Well within 15.0 GB T4 limit (9.5 GB free headroom)** |
+| **Host System RAM** | Linux + Python runtime | **~2.5 GB** | **Host RAM** | **Well within 12.7 GB Colab limit (10 GB free margin)** |
 
-*The Insight:* Because Wan 2.1-1.3B's DiT is compact (**only 2.6 GB in FP16**), and because **Model CPU Offloading** moves the 9.6 GB UMT5 text encoder off GPU before the diffusion loop begins, **FP16 easily fits within the T4's 15 GB VRAM with 7+ GB of headroom**. Running 4-bit NF4 on Turing merely adds software dequantization penalties on every matrix multiplication.
+*The Architectural Insight:* In Google Colab, **GPU VRAM (15.0 GB) is larger than Host RAM (12.7 GB)**! Relying on standard CPU offloading is backwards because it forces 14+ GB of models into a constrained 12.7 GB Host RAM, triggering swap and kernel crashes. By streaming UMT5 directly into 4-bit NF4 on the GPU and keeping the compact 1.3B DiT in native FP16, **the entire model resides on the GPU in only 5.5 GB**, preserving Host RAM at ~2.5 GB and eliminating PCIe weight-swapping overhead.
 
 ---
 
 ### 3. Solver Optimization: UniPC vs Euler Flow Matching
 
 Wan 2.1 is trained on continuous Rectified Flow. While standard `FlowMatchEulerDiscreteScheduler` requires 25–30 steps for convergence:
-- **`UniPCMultistepScheduler` (with `flow_shift=3.0` for 480p/360p):** A higher-order predictor-corrector solver that converges in **14–16 steps** with identical structural fidelity.
-- **Pass Multiplier:** With Classifier-Free Guidance (`guidance_scale=5.0`), each step requires 2 forward passes. Cutting steps from 25 down to 16 drops total forward passes from **50 down to 32** (a direct **36% time reduction**).
+- **`UniPCMultistepScheduler` (with `flow_shift=3.0` for 480p/360p):** A higher-order predictor-corrector solver that converges in **14–22 steps** with identical structural fidelity.
+- **Pass Multiplier:** With Classifier-Free Guidance (`guidance_scale=5.0`), each step requires 2 forward passes. Cutting steps from 30 down to 20 drops total forward passes from **60 down to 40** (a direct **33% latency reduction**).
 
 ---
 
-### 4. Memory Offloading Architecture Timeline
+### 4. GPU VRAM Timeline (Zero Host RAM Spikes)
 
-```
+```text
 Timeline:
 [Phase 1: Text Conditioning]
-  ├── Host RAM:  DiT (2.6 GB) + VAE (1.5 GB) cached in CPU memory
-  └── GPU VRAM:  UMT5-XXL (9.6 GB) loads -> encodes prompt -> OFFLOADS to Host RAM (0 GB VRAM)
+  ├── Host RAM:  ~2.5 GB (Python kernel + Gradio server)
+  └── GPU VRAM:  4-bit UMT5 (2.4 GB) encodes prompt -> outputs prompt_embeds (Peak: ~2.8 GB)
 
-[Phase 2: Spatiotemporal Denoising Loop (16 steps)]
-  ├── Host RAM:  UMT5 (9.6 GB) + VAE (1.5 GB)
-  └── GPU VRAM:  DiT 1.3B (2.6 GB) stays resident + SDPA attention activations (~3.5-5.0 GB)
-                 Peak VRAM: ~7.6 GB (Safe margin: 7.4 GB remaining on T4)
+[Phase 2: Spatiotemporal Denoising Loop (20-22 steps)]
+  ├── Host RAM:  ~2.5 GB (Static, 0 GB memory traffic)
+  └── GPU VRAM:  DiT 1.3B FP16 (2.6 GB) + UMT5 (2.4 GB) + SDPA attention activations (~3.5-4.0 GB)
+                 Peak VRAM: ~9.0 GB (Safe margin: 6.0 GB remaining on T4)
 
 [Phase 3: 3D Latent Decoding]
-  ├── Host RAM:  UMT5 (9.6 GB) + DiT (2.6 GB)
-  └── GPU VRAM:  3D Causal VAE (1.5 GB) with spatial/temporal tiling (Peak VRAM: < 4 GB)
+  ├── Host RAM:  ~2.5 GB (Static)
+  └── GPU VRAM:  3D Causal VAE (0.5 GB) with spatial/temporal tiling (Peak VRAM: < 6.5 GB)
 ```
 
 ---
