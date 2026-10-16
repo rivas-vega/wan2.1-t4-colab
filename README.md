@@ -53,7 +53,7 @@ This repository provides an inference engine and clean Gradio studio tailored fo
       <h4>Unedited Output on Tesla T4</h4>
       <p><b>Prompt:</b></p>
       <blockquote>
-        <i>"A trendy young content creator holding a small vlogging camera at arm's length, walking through a sunny historic European street, smiling naturally to the camera with soft daylight and vibrant cafe terraces in the background"</i>
+        <i>"A young content creator holding a small vlogging camera at arm's length, walking through a sunny historic European street, smiling naturally to the camera with soft daylight"</i>
       </blockquote>
       <p>
         <b>Generation Specs:</b><br/>
