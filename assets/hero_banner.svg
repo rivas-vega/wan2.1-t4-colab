@@ -1,31 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 220" width="100%" height="100%">
-  <defs>
-    <filter id="heroBlur" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="54" />
-    </filter>
-    <linearGradient id="heroBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="55%" stop-color="#f8fafc" />
-      <stop offset="100%" stop-color="#f1f5f9" />
-    </linearGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 170" width="100%" height="100%">
+  <!-- Background -->
+  <rect width="1080" height="170" rx="16" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.2" />
 
-  <rect width="1080" height="220" rx="24" fill="url(#heroBg)" stroke="#e2e8f0" stroke-width="1.2" />
+  <!-- Left Accent Bar -->
+  <rect x="0" y="24" width="4" height="122" rx="2" fill="#0064e0" />
 
-  <!-- Soft Meta Ambient Blur Orbs -->
-  <circle cx="180" cy="60" r="140" fill="#dbeafe" opacity="0.75" filter="url(#heroBlur)" />
-  <circle cx="520" cy="180" r="160" fill="#e0e7ff" opacity="0.60" filter="url(#heroBlur)" />
-  <circle cx="900" cy="70" r="140" fill="#f3e8ff" opacity="0.55" filter="url(#heroBlur)" />
-
-  <!-- Top Pill -->
-  <rect x="48" y="38" width="268" height="26" rx="13" fill="#ffffff" fill-opacity="0.85" stroke="#cbd5e1" stroke-width="1" />
-  <circle cx="64" cy="51" r="4" fill="#0064e0" />
-  <text x="76" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif" font-size="11" font-weight="600" letter-spacing="0.6" fill="#1e293b">OPEN VIDEO SYNTHESIS · TESLA T4</text>
+  <!-- Badge Pill -->
+  <rect x="44" y="30" width="220" height="24" rx="12" fill="#f3f4f6" stroke="#e5e7eb" stroke-width="1" />
+  <circle cx="58" cy="42" r="4" fill="#0064e0" />
+  <text x="70" y="46" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#374151" letter-spacing="0.5">COLAB T4 · 15 GB VRAM</text>
 
   <!-- Title -->
-  <text x="48" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif" font-size="36" font-weight="700" letter-spacing="-0.9" fill="#0f172a">Wan 2.1 Video Studio</text>
+  <text x="44" y="92" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="700" fill="#111827" letter-spacing="-0.6">Wan 2.1 Video Studio</text>
 
   <!-- Subtitle -->
-  <text x="48" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif" font-size="15.5" font-weight="400" fill="#475569">Memory-engineered 3D diffusion pipeline running Alibaba's Wan 2.1 (1.3B) on free Google Colab hardware</text>
-  <text x="48" y="166" font-family="-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif" font-size="14" font-weight="500" fill="#64748b">Native FP16 DiT · 4-bit NF4 UMT5 · Official 480p UniPC (flow_shift = 3.0) · Live 3D Trajectory Preview</text>
+  <text x="44" y="124" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14.5" font-weight="400" fill="#4b5563">Run Alibaba's Wan 2.1 (1.3B) text-to-video model on free-tier Google Colab without crashes</text>
+
+  <!-- Right Spec Pills -->
+  <g transform="translate(680, 52)">
+    <rect x="0" y="0" width="356" height="66" rx="10" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1" />
+    <text x="16" y="26" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">Quantization &amp; Precision</text>
+    <text x="16" y="48" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="400" fill="#6b7280">4-bit NF4 UMT5 · Native FP16 DiT · FP32 Tiled VAE</text>
+  </g>
 </svg>

@@ -1,75 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 340" width="100%" height="100%">
-  <defs>
-    <filter id="blurOrb" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="48" />
-    </filter>
-    <filter id="softShadow" x="-8%" y="-6%" width="116%" height="120%">
-      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.04" />
-    </filter>
-    <linearGradient id="canvasBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="100%" stop-color="#f8fafc" />
-    </linearGradient>
-    <linearGradient id="metaBlue" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#0064e0" />
-      <stop offset="100%" stop-color="#3b82f6" />
-    </linearGradient>
-    <linearGradient id="dangerRed" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#dc2626" />
-      <stop offset="100%" stop-color="#ef4444" />
-    </linearGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 280" width="100%" height="100%">
+  <!-- Container -->
+  <rect width="1040" height="280" rx="14" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.2" />
 
-  <!-- Canvas -->
-  <rect width="1080" height="340" rx="24" fill="url(#canvasBg)" stroke="#e2e8f0" stroke-width="1.2" />
-
-  <!-- Ambient Blur Orbs -->
-  <circle cx="240" cy="170" r="130" fill="#fee2e2" opacity="0.45" filter="url(#blurOrb)" />
-  <circle cx="800" cy="170" r="140" fill="#dbeafe" opacity="0.60" filter="url(#blurOrb)" />
+  <!-- Top Title Bar -->
+  <text x="36" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#0064e0" letter-spacing="1.2">MEMORY TELEMETRY</text>
+  <text x="36" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" fill="#111827">Google Colab T4 Memory Allocation Comparison</text>
 
   <!-- Left Card: Baseline Diffusers -->
-  <g filter="url(#softShadow)">
-    <rect x="40" y="36" width="480" height="268" rx="18" fill="#ffffff" fill-opacity="0.88" stroke="#e2e8f0" stroke-width="1.2" />
-  </g>
-  <rect x="64" y="60" width="136" height="22" rx="11" fill="#fef2f2" />
-  <text x="132" y="75" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="10.5" font-weight="600" letter-spacing="0.5" fill="#dc2626">BASELINE DIFFUSERS</text>
-  <text x="64" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="16" font-weight="600" fill="#0f172a">Standard FP32 Load + CPU Offload</text>
-  <text x="64" y="128" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" fill="#64748b">Assumes Workstation Topology (Host RAM &gt; GPU VRAM)</text>
+  <rect x="36" y="86" width="466" height="166" rx="10" fill="#f9fafb" stroke="#fca5a5" stroke-width="1" />
+  <rect x="52" y="102" width="134" height="20" rx="4" fill="#fee2e2" />
+  <text x="119" y="116" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" fill="#dc2626">DEFAULT DIFFUSERS</text>
+  <text x="52" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600" fill="#111827">Standard FP32 Load + CPU Offloading</text>
 
-  <!-- Bar 1: Host RAM -->
-  <text x="64" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#334155">Colab System RAM (22.7 GB UMT5 in FP32)</text>
-  <text x="496" y="164" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#dc2626">13.9 / 12.7 GB (Kernel Crash)</text>
-  <rect x="64" y="174" width="432" height="12" rx="6" fill="#f1f5f9" />
-  <rect x="64" y="174" width="432" height="12" rx="6" fill="url(#dangerRed)" />
+  <!-- RAM Bar 1 -->
+  <text x="52" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="500" fill="#4b5563">System RAM (22.7 GB UMT5 on CPU)</text>
+  <text x="486" y="172" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="700" fill="#dc2626">13.9 / 12.7 GB (OOM Crash)</text>
+  <rect x="52" y="180" width="434" height="8" rx="4" fill="#e5e7eb" />
+  <rect x="52" y="180" width="434" height="8" rx="4" fill="#ef4444" />
 
-  <!-- Bar 2: 65-frame 3D VAE Decode -->
-  <text x="64" y="222" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#334155">T4 GPU VRAM (65-Frame 3D VAE Decode)</text>
-  <text x="496" y="222" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#dc2626">15.4 / 15.0 GB (CUDA OOM)</text>
-  <rect x="64" y="232" width="432" height="12" rx="6" fill="#f1f5f9" />
-  <rect x="64" y="232" width="432" height="12" rx="6" fill="url(#dangerRed)" />
+  <!-- VRAM Bar 1 -->
+  <text x="52" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="500" fill="#4b5563">GPU VRAM (65-frame 3D VAE Decode)</text>
+  <text x="486" y="214" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="700" fill="#dc2626">15.4 / 15.0 GB (CUDA OOM)</text>
+  <rect x="52" y="222" width="434" height="8" rx="4" fill="#e5e7eb" />
+  <rect x="52" y="222" width="434" height="8" rx="4" fill="#ef4444" />
 
-  <text x="64" y="274" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="11.5" fill="#64748b">Result: Terminates Colab session during text encoder loading or final VAE decode.</text>
+  <!-- Right Card: This Optimized Pipeline -->
+  <rect x="538" y="86" width="466" height="166" rx="10" fill="#f9fafb" stroke="#cbd5e1" stroke-width="1.2" />
+  <rect x="554" y="102" width="144" height="20" rx="4" fill="#dbeafe" />
+  <text x="626" y="116" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" fill="#0064e0">OPTIMIZED PIPELINE</text>
+  <text x="554" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600" fill="#111827">4-Bit NF4 GPU Stream + Pre-VAE CPU Eviction</text>
 
-  <!-- Right Card: Engineered Pipeline -->
-  <g filter="url(#softShadow)">
-    <rect x="560" y="36" width="480" height="268" rx="18" fill="#ffffff" fill-opacity="0.90" stroke="#cbd5e1" stroke-width="1.2" />
-  </g>
-  <rect x="584" y="60" width="154" height="22" rx="11" fill="#eff6ff" />
-  <text x="661" y="75" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="10.5" font-weight="600" letter-spacing="0.5" fill="#0064e0">ENGINEERED PIPELINE</text>
-  <text x="584" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="16" font-weight="600" fill="#0f172a">4-Bit GPU Streaming + Pre-VAE RAM Eviction</text>
-  <text x="584" y="128" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" fill="#64748b">Tailored for Colab Topology (15.0 GB VRAM &gt; 12.7 GB RAM)</text>
+  <!-- RAM Bar 2 -->
+  <text x="554" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="500" fill="#4b5563">System RAM (Direct GPU Streaming + mallopt)</text>
+  <text x="988" y="172" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="700" fill="#0064e0">3.0 / 12.7 GB (9.7 GB free)</text>
+  <rect x="554" y="180" width="434" height="8" rx="4" fill="#e5e7eb" />
+  <rect x="554" y="180" width="102" height="8" rx="4" fill="#0064e0" />
 
-  <!-- Bar 1: Host RAM -->
-  <text x="584" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#334155">Colab System RAM (glibc mallopt + Direct GPU NF4)</text>
-  <text x="1016" y="164" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#0064e0">3.0 / 12.7 GB (+9.7 GB Free)</text>
-  <rect x="584" y="174" width="432" height="12" rx="6" fill="#f1f5f9" />
-  <rect x="584" y="174" width="102" height="12" rx="6" fill="url(#metaBlue)" />
-
-  <!-- Bar 2: Peak VRAM -->
-  <text x="584" y="222" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#334155">T4 GPU VRAM (Pre-VAE DiT Eviction + Tiled FP32 VAE)</text>
-  <text x="1016" y="222" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="12" font-weight="600" fill="#0064e0">10.4 / 15.0 GB (+4.6 GB Free)</text>
-  <rect x="584" y="232" width="432" height="12" rx="6" fill="#f1f5f9" />
-  <rect x="584" y="232" width="299" height="12" rx="6" fill="url(#metaBlue)" />
-
-  <text x="584" y="274" font-family="-apple-system, BlinkMacSystemFont, 'Inter', sans-serif" font-size="11.5" fill="#334155">Result: Generates 65–81 frame (4.1s–5.1s) native 480p clips with zero OOM crashes.</text>
+  <!-- VRAM Bar 2 -->
+  <text x="554" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="500" fill="#4b5563">GPU VRAM (Pre-VAE Eviction + FP32 Tiling)</text>
+  <text x="988" y="214" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11.5" font-weight="700" fill="#0064e0">10.4 / 15.0 GB (4.6 GB free)</text>
+  <rect x="554" y="222" width="434" height="8" rx="4" fill="#e5e7eb" />
+  <rect x="554" y="222" width="300" height="8" rx="4" fill="#0064e0" />
 </svg>
