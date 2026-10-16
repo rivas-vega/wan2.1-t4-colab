@@ -13,16 +13,26 @@
 
 <br/>
 
+## Motivation
+
+This project originated after working on the quantization and model compression lab in the **ALTEGRAD** (*Advanced Learning for Text and Graph Data*, M2 MVA) course. While applying 4-bit and 8-bit weight quantization to large language models (LLMs) is well established, running modern **generative video foundation models** on consumer hardware presents a more complex systems challenge.
+
+Video diffusion pipelines do not just host a single model—they orchestrate:
+1. A massive language model text encoder (**UMT5-XXL**, 22.7 GB in FP32).
+2. A 3D spatiotemporal diffusion transformer (**DiT**, 1.3B parameters).
+3. A continuous 3D causal video autoencoder (**3D VAE**).
+
+The goal of this work was to test whether quantization and selective memory offloading could make a complete state-of-the-art video model run end-to-end on a free **Google Colab Tesla T4** (`12.7 GB Host RAM`, `15.0 GB VRAM`) without crashing or sacrificing video texture quality.
+
+---
+
 ## Overview
 
-Alibaba's **Wan 2.1 (1.3B)** is an open-weights text-to-video foundation model composed of:
-1. **UMT5-XXL** (text encoder, 22.7 GB in FP32)
-2. **Wan 2.1 DiT** (1.3B diffusion transformer)
-3. **3D Causal VAE** (spatiotemporal video autoencoder)
+Alibaba's **Wan 2.1 (1.3B)** is an open-weights text-to-video model capable of high-fidelity spatiotemporal motion. However, running the default Hugging Face `diffusers` implementation requires over 32 GB of system RAM and 24+ GB of GPU VRAM. On a free Google Colab instance, the default pipeline immediately crashes:
+- **Host RAM OOM:** Loading the 22.7 GB text encoder crashes Colab's 12.7 GB system RAM.
+- **CUDA OOM:** Retaining all model weights during 65-frame 3D VAE decoding exceeds the 15.0 GB VRAM limit.
 
-Running this pipeline directly with default Hugging Face `diffusers` requires 32+ GB of system RAM and 24+ GB of VRAM. On a free **Google Colab Tesla T4** (`12.7 GB System RAM`, `15.0 GB VRAM`), the environment crashes during text encoder loading (RAM OOM) or during final 3D VAE decoding (CUDA OOM).
-
-This repository provides an inference pipeline and minimalist Gradio web studio engineered to run Wan 2.1 on free Google Colab hardware, generating continuous **4.1-second (65 frames)** and **5.1-second (81 frames)** videos at 480p.
+This repository provides an inference engine and clean Gradio studio tailored for constrained cloud GPUs, generating uncompressed **4.1-second (65 frames)** and **5.1-second (81 frames)** continuous 480p videos directly on a free Tesla T4.
 
 ---
 
@@ -41,17 +51,17 @@ This repository provides an inference pipeline and minimalist Gradio web studio 
     </td>
     <td width="58%" valign="middle">
       <h4>Unedited Output on Tesla T4</h4>
-      <p><b>Prompt used:</b></p>
+      <p><b>Prompt:</b></p>
       <blockquote>
         <i>"A trendy young content creator holding a small vlogging camera at arm's length, walking through a sunny historic European street, smiling naturally to the camera with soft daylight and vibrant cafe terraces in the background"</i>
       </blockquote>
       <p>
-        <b>Specs:</b><br/>
+        <b>Generation Specs:</b><br/>
         • <b>Resolution:</b> 480 × 832 (9:16 vertical)<br/>
         • <b>Length:</b> 65 frames · 4.1 s @ 16 fps<br/>
-        • <b>Scheduler:</b> UniPC Multistep (45 steps, <code>flow_shift = 3.0</code>, <code>CFG = 5.0</code>)<br/>
+        • <b>Solver:</b> UniPC Multistep (45 steps, <code>flow_shift = 3.0</code>, <code>CFG = 5.0</code>)<br/>
         • <b>Seed:</b> <code>342683004</code><br/>
-        • <b>GPU:</b> NVIDIA Tesla T4 (Google Colab Free Tier)
+        • <b>Hardware:</b> NVIDIA Tesla T4 (Google Colab Free Tier)
       </p>
     </td>
   </tr>
@@ -59,99 +69,99 @@ This repository provides an inference pipeline and minimalist Gradio web studio 
 
 ---
 
-## Techniques & Precision Strategy
+## Technical Strategy & Quantization Breakdown
 
-### ¿Usamos cuantización? ¿Qué se ha cuantizado y qué no?
+### What is quantized and what is not?
 
-| Componente | Tamaño Original | Precisión Utilizada | ¿Cuantizado? | Dónde reside | Uso de Memoria |
+| Component | Uncompressed Size | Precision in Pipeline | Quantized? | Device Residency | Peak Memory |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Text Encoder (`UMT5-XXL`)** | 22.7 GB | **4-bit NF4** (`bitsandbytes`) | **Sí** | GPU VRAM | **2.4 GB VRAM** (RAM a 3.0 GB) |
-| **DiT (`WanTransformer3DModel`)** | 2.6 GB | **FP16 Nativo** | **No** | GPU VRAM (pasa a RAM pre-VAE) | **2.6 GB VRAM** |
-| **3D Causal VAE** | 1.2 GB | **FP32** (con tiling espacial/temporal) | **No** | GPU VRAM | **~6.5 GB VRAM** en decodificación |
+| **Text Encoder (`UMT5-XXL`)** | 22.7 GB | **4-bit NF4** (`bitsandbytes`) | **Yes** | GPU VRAM | **2.4 GB VRAM** (Host RAM at 3.0 GB) |
+| **Diffusion DiT (`WanTransformer3DModel`)** | 2.6 GB | **Native FP16** | **No** | GPU VRAM (moved to CPU pre-VAE) | **2.6 GB VRAM** |
+| **3D Causal VAE** | 1.2 GB | **FP32** (spatial & temporal tiling) | **No** | GPU VRAM | **~6.5 GB VRAM** during decode |
 
 <br/>
 
-### 1. Cuantización 4-bit NF4 directa a GPU para UMT5
-- **El problema:** `UMT5-XXL` pesa 22.7 GB en FP32 repartido en 6 shards. Cargarlo en la CPU o usar `device_map="auto"` desborda de inmediato los 12.7 GB de RAM de Colab y el kernel de Linux mata el proceso.
-- **La solución:** Descargamos los shards directamente a la GPU (`device_map={"": 0}`) usando cuantización NormalFloat4 (`bnb_4bit_quant_type="nf4"`). Esto comprime el modelo a **2.4 GB de VRAM** y mantiene la RAM del sistema en apenas **3.0 GB**, dejando casi 10 GB de RAM libres.
+### 1. Direct-to-GPU 4-bit NF4 Quantization for UMT5
+- **The Issue:** `UMT5-XXL` weighs 22.7 GB in FP32 across 6 shards. Loading it onto CPU or using default `device_map="auto"` immediately exceeds Colab's 12.7 GB system RAM, causing the Linux kernel to kill the process.
+- **The Solution:** We stream the shards directly into GPU memory (`device_map={"": 0}`) using 4-bit NormalFloat (`bnb_4bit_quant_type="nf4"`). This compresses the text encoder down to **2.4 GB VRAM** and keeps system RAM at only **3.0 / 12.7 GB**, leaving nearly 10 GB of host memory free.
 
-### 2. DiT en FP16 nativo (sin cuantizar)
-- El transformer de difusión de 1.3B parámetros se mantiene en `float16` nativo (~2.6 GB en VRAM).
-- **Por qué no cuantizarlo:** La cuantización a 4 u 8 bits en el DiT degrada la coherencia temporal y produce pérdida de microtextura (piel, cabello, telas). Mantenerlo en FP16 preserva toda la nitidez visual y aprovecha al 100% los Tensor Cores de la GPU T4.
+### 2. Native FP16 for the Diffusion Transformer (Unquantized)
+- The 1.3B parameter 3D DiT is kept in native `float16` precision (~2.6 GB VRAM).
+- **Why not quantize the DiT?** Quantizing the diffusion transformer to 4-bit or 8-bit causes noticeable temporal flicker and degrades micro-textures (skin, hair, fabric, fine architectural details). Keeping it in FP16 retains full visual quality while running at peak throughput on the T4's Tensor Cores.
 
-### 3. VAE 3D en FP32 con Tiling
-- El VAE causal 3D corre en `float32` con `enable_tiling()` y `enable_slicing()`.
-- En Wan 2.1, ejecutar el VAE en FP16 genera posterización y artefactos de color (color banding). Mantenerlo en FP32 garantiza gradientes limpios y colores naturales sin superar el límite de memoria gracias a la división en bloques espaciales y temporales.
+### 3. Tiled FP32 for the 3D Causal VAE (Unquantized)
+- The 3D VAE runs in `float32` with `enable_tiling()` and `enable_slicing()`.
+- Running the VAE in FP16 leads to severe color posterization and banding artifacts in Wan 2.1. Executing it in FP32 with spatial and temporal tiling keeps colors natural and gradients smooth without exceeding VRAM.
 
-### 4. Desalojo dinámico pre-VAE (Pre-VAE CPU Eviction)
-- **El problema:** Decodificar 65 fotogramas de vídeo 3D en FP32 requiere un pico de memoria considerable. Si el DiT (2.6 GB) permanece en la GPU mientras el VAE decodifica, la VRAM total supera los 15.0 GB y ocurre un fallo CUDA OOM.
-- **La solución:** Al finalizar el último paso de difusión (`step_index == total_steps - 1`), la pipeline traslada temporalmente `pipe.transformer` a la RAM del sistema (`transformer.to("cpu")`) y libera la memoria de CUDA con `torch.cuda.empty_cache()`. Esto otorga más de 4.5 GB de VRAM adicionales de margen para la decodificación del vídeo.
+### 4. Pre-VAE Dynamic DiT Eviction
+- **The Issue:** Decoding 65 frames of 3D latent volume requires significant temporary memory. If the 2.6 GB DiT remains in VRAM during VAE decoding, peak memory crosses 15.0 GB and triggers a CUDA OOM.
+- **The Solution:** At the completion of the final denoising step (`step_index == total_steps - 1`), the pipeline temporarily offloads `pipe.transformer` to free system RAM (`transformer.to("cpu")`) and clears the CUDA cache. This opens **over 4.5 GB of additional VRAM headroom** exclusively for 3D video decoding.
 
-### 5. Calibración de ruido para 480p (`flow_shift = 3.0`)
-- Por defecto, la configuración de Wan 2.1 utiliza `flow_shift = 5.0`, optimizada para 720p. En resoluciones de 480p ($480 \times 832$), este valor concentra demasiados pasos en la fase de alto ruido y resta iteraciones a la fase de bajo ruido donde se forman las texturas.
-- Usar **`flow_shift = 3.0`** con el solver `UniPCMultistepScheduler` (45 pasos) equilibra la trayectoria y recupera el detalle en la imagen final.
+### 5. 480p Noise Schedule Tuning (`flow_shift = 3.0`)
+- Wan 2.1 defaults to `flow_shift = 5.0`, which is tuned for 720p generation. At 480p ($480 \times 832$), this shifts too many solver steps into the high-noise regime, leaving too few steps for the low-noise regime where textures settle.
+- Configuring `UniPCMultistepScheduler` with **`flow_shift = 3.0`** over 45 steps and a constant `guidance_scale = 5.0` restores crisp micro-contrast and fine details.
 
-### 6. Optimización de memoria a nivel de sistema
-- `HF_HUB_DISABLE_XET=1`: Desactiva la reconstrucción en RAM de archivos descargados de Hugging Face.
-- `glibc malloc_trim(0)`: Invoca la liberación forzada del asignador de memoria C para devolver los buffers liberados por PyTorch al sistema operativo inmediatamente.
+### 6. Low-Level System Allocator Tuning
+- `HF_HUB_DISABLE_XET=1`: Prevents duplicate in-memory buffering during Hugging Face shard downloads.
+- `glibc malloc_trim(0)`: Calls the C-level memory allocator to force immediate release of unreferenced pages back to the operating system.
 
 ---
 
-## Comparativa de Memoria
+## Memory Benchmark
 
 <div align="center">
-  <img src="assets/memory_telemetry.svg" alt="Memory Telemetry" width="100%" />
+  <img src="assets/memory_telemetry.svg" alt="Memory Benchmark on Tesla T4" width="100%" />
 </div>
 
 <br/>
 
-| Escenario | RAM del Sistema (Límite: 12.7 GB) | VRAM de la GPU (Límite: 15.0 GB) | Resultado |
+| Pipeline | Host RAM (12.7 GB limit) | GPU VRAM (15.0 GB limit) | Operational Status |
 | :--- | :---: | :---: | :---: |
-| **Diffusers estándar** | `13.9 GB` | `> 15.0 GB` | **Crash (OOM)** al cargar UMT5 o en VAE |
-| **Esta pipeline optimizada** | **`3.0 GB`** *(9.7 GB libres)* | **`10.4 GB`** *(4.6 GB libres)* | **Generación exitosa** (65–81 frames) |
+| **Default Diffusers** | `13.9 GB` | `> 15.0 GB` | **Crash (OOM)** during UMT5 load or VAE decode |
+| **This Pipeline** | **`3.0 GB`** *(9.7 GB free)* | **`10.4 GB`** *(4.6 GB free)* | **Stable generation** (65–81 frames) |
 
 ---
 
-## Presets de Generación
+## Generation Presets
 
-| Formato | Resolución | Duración | Frames | Configuración del Solver | VRAM Pico |
+| Preset | Resolution | Duration | Frames | Solver Configuration | Peak VRAM |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **`Reel 9:16 · 4s`** *(Recomendado)* | `480 × 832` | **4.1 s** (16 fps) | `65` | UniPC (flow_shift=3.0, 45 steps, CFG=5.0) | `10.4 GB` |
+| **`Reel 9:16 · 4s`** *(Default)* | `480 × 832` | **4.1 s** (16 fps) | `65` | UniPC (flow_shift=3.0, 45 steps, CFG=5.0) | `10.4 GB` |
 | **`Reel 9:16 · 5s`** | `480 × 832` | **5.1 s** (16 fps) | `81` | UniPC (flow_shift=3.0, 45 steps, CFG=5.0) | `11.2 GB` |
 | **`Cinema 16:9 · 4s`** | `832 × 480` | **4.1 s** (16 fps) | `65` | UniPC (flow_shift=3.0, 45 steps, CFG=5.0) | `10.4 GB` |
 
 ---
 
-## Cómo Ejecutar en Google Colab
+## Quick Start (Google Colab)
 
-1. Abre [`wan2_1_t4_colab_free_inference.ipynb`](https://colab.research.google.com/github/rivas-vega/wan2.1-t4-colab/blob/main/wan2_1_t4_colab_free_inference.ipynb) en Google Colab.
-2. Selecciona **Entorno de ejecución → Cambiar tipo de entorno de ejecución → GPU T4**.
-3. Ejecuta las celdas en orden:
-   - **Paso 1:** Instala dependencias y configura variables de entorno.
-   - **Paso 2:** *(Opcional)* Token de Hugging Face para acelerar la descarga.
-   - **Paso 3 / 4:** Inicia el estudio interactivo con interfaz Gradio limpia.
+1. Open [`wan2_1_t4_colab_free_inference.ipynb`](https://colab.research.google.com/github/rivas-vega/wan2.1-t4-colab/blob/main/wan2_1_t4_colab_free_inference.ipynb) in Google Colab.
+2. Ensure hardware accelerator is set to **Runtime → Change runtime type → T4 GPU**.
+3. Run the notebook cells sequentially:
+   - **Step 1:** Installs required packages and sets environment variables.
+   - **Step 2:** *(Optional)* Input a Hugging Face read token to speed up weight downloads.
+   - **Step 3 / 4:** Preloads the pipeline or launches the clean Gradio web studio directly.
 
 ---
 
-## Estructura del Repositorio
+## Repository Structure
 
 ```text
 ├── assets/
-│   ├── hero_banner.svg             # Banner de cabecera minimalista
-│   ├── pipeline_architecture.svg   # Diagrama de flujo del pipeline
-│   ├── memory_telemetry.svg        # Comparativa de uso de RAM/VRAM
-│   ├── demo_t4_vlog.gif            # GIF de muestra con bordes redondeados
-│   └── demo_t4_vlog.mp4            # Vídeo original H.264 generado en T4
-├── wan2_1_t4_colab_free_inference.ipynb  # Notebook listo para Colab
-├── app.py                          # Interfaz web de Gradio limpia
-├── pipeline_utils.py               # Loader 4-bit NF4, desalojo pre-VAE y scheduler 480p
-├── requirements.txt                # Dependencias de Python
-└── README.md                       # Documentación técnica
+│   ├── hero_banner.svg             # Header banner graphic
+│   ├── pipeline_architecture.svg   # End-to-end inference pipeline diagram
+│   ├── memory_telemetry.svg        # Memory benchmark diagram
+│   ├── demo_t4_vlog.gif            # 65-frame sample with rounded corners
+│   └── demo_t4_vlog.mp4            # Full-quality H.264 video source
+├── wan2_1_t4_colab_free_inference.ipynb  # One-click Google Colab notebook
+├── app.py                          # Minimalist Gradio studio interface
+├── pipeline_utils.py               # 4-bit NF4 GPU loader, pre-VAE eviction & scheduler
+├── requirements.txt                # Python package dependencies
+└── README.md                       # Technical documentation
 ```
 
 ---
 
-## Autor
+## Author
 
 **Pedro** ([@rivas-vega](https://github.com/rivas-vega))  
-M2 MVA, École Normale Supérieure Paris-Saclay · Grado en Matemáticas, Universidad de Sevilla
+M2 MVA, École Normale Supérieure Paris-Saclay · B.S. in Mathematics, Universidad de Sevilla
