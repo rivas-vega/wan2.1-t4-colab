@@ -137,9 +137,12 @@ def load_wan_t4_pipeline(
         and getattr(existing, "vae", None) is not None
     ):
         try:
-            from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
-            existing.scheduler = UniPCMultistepScheduler.from_config(
-                existing.scheduler.config, flow_shift=5.0
+            from diffusers.schedulers import UniPCMultistepScheduler
+            existing.scheduler = UniPCMultistepScheduler(
+                prediction_type="flow_prediction",
+                use_flow_sigmas=True,
+                num_train_timesteps=1000,
+                flow_shift=3.0,  # Official Wan 2.1 480P flow_shift=3.0 for crisp surface textures
             )
             if torch.cuda.is_available():
                 existing.transformer.to("cuda")
@@ -149,7 +152,7 @@ def load_wan_t4_pipeline(
         if main_mod is not None:
             setattr(main_mod, "pipe", existing)
         clear_cuda_cache()
-        _notify(f"Engine ready on GPU (Official UniPC flow_shift=5.0). {get_gpu_memory_summary()}")
+        _notify(f"Engine ready on GPU (Official 480p UniPC flow_shift=3.0). {get_gpu_memory_summary()}")
         return existing
 
     _notify("Configuring NVIDIA Turing CUDA kernels and memory allocator...")
@@ -232,7 +235,7 @@ def load_wan_t4_pipeline(
             torch_dtype=dtype,
         )
 
-    _notify("Step 4/4 · Assembling WanPipeline and configuring Official UniPC solver...")
+    _notify("Step 4/4 · Assembling WanPipeline and configuring Official 480p UniPC solver...")
     pipe = WanPipeline.from_pretrained(
         model_id,
         vae=vae,
@@ -241,21 +244,21 @@ def load_wan_t4_pipeline(
         torch_dtype=dtype,
     )
 
-    # Move remaining sub-modules to GPU (GPU has 15GB VRAM, model only takes 5.5GB total!)
-    # We do NOT use enable_model_cpu_offload() because CPU RAM is only 12.7GB,
-    # whereas GPU VRAM is 15.0GB! Keeping models on GPU preserves Host RAM and speeds up inference 2x!
     if torch.cuda.is_available():
         pipe.transformer.to("cuda")
         pipe.vae.to("cuda")
-        # text_encoder is already managed on cuda via device_map={"": 0}
 
-    # Configure Official Wan 2.1 UniPCMultistepScheduler (flow_shift=5.0, bh2 solver, lower_order_final=True)
+    # CRITICAL TEXTURE FIX: Official Wan-AI/Wan2.1-T2V-1.3B-Diffusers 480P Scheduler Configuration.
+    # For 480P resolution (480x832 / 832x480), flow_shift MUST be 3.0 (5.0 is only for 720P and skips
+    # the low-sigma texture refinement steps at 480P, causing muddy/blotchy textures).
     if scheduler_type == "unipc":
         try:
-            from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
-            pipe.scheduler = UniPCMultistepScheduler.from_config(
-                pipe.scheduler.config,
-                flow_shift=5.0,  # Official Wan 2.1 T2V flow_shift=5.0 from Wan-Video/Wan2.1/generate.py
+            from diffusers.schedulers import UniPCMultistepScheduler
+            pipe.scheduler = UniPCMultistepScheduler(
+                prediction_type="flow_prediction",
+                use_flow_sigmas=True,
+                num_train_timesteps=1000,
+                flow_shift=3.0,
             )
         except Exception as e:
             print(f"[Wan 2.1 Loader] UniPC scheduler fallback: {e}")
@@ -264,7 +267,7 @@ def load_wan_t4_pipeline(
             from diffusers import FlowMatchEulerDiscreteScheduler
             pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
                 pipe.scheduler.config,
-                shift=5.0,
+                shift=3.0,
             )
         except Exception as e:
             print(f"[Wan 2.1 Loader] Euler scheduler fallback: {e}")
@@ -449,30 +452,28 @@ AUDIO_NEGATIVE_PROMPT = "low quality, noise, distortion, muffled, clipping, spee
 FPS = 16
 
 # Official Alibaba Wan 2.1 negative prompt (translated from wan/configs/shared_config.py)
-# Starts with "Bright tones, overexposed" (色调艳丽，过曝) to prevent neon/synthetic color burn,
-# plus anti-CGI and anti-morphing constraints for natural documentary realism.
 WAN_NEGATIVE_PROMPT = (
     "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, "
     "static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, "
     "extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, "
     "fused fingers, still picture, messy background, three legs, many people in the background, "
-    "walking backwards, CGI, 3D render, video game, plastic skin, synthetic sheen, morphing, warped geometry"
+    "walking backwards, noise, grainy, blurry, out of focus, blotchy texture, distorted"
 )
 
-# High-fidelity hardware-tuned settings for Tesla T4 (num_frames must be 4k+1).
-# 33 frames (2.1s @ 16fps, T_L=9) gives natural temporal breathing room so motion isn't rushed.
+# Native long-duration settings for Wan 2.1 (num_frames must be 4k+1: 65 frames = 4.1s, 81 frames = 5.1s).
+# Pre-VAE DiT Eviction frees 2.6 GB VRAM right before vae.decode(), allowing full 65-81 frame decoding on T4.
 DURATION_PRESETS = {
-    "Reel 9:16 · Single Shot": dict(
-        width=480, height=832, num_frames=33, steps=38, shots=1, eta_min=5.0,
-        desc="Vertical 9:16 HD (720x1280) · 1 shot (2.1s) · 38 steps UniPC · Keyframe preview in ~6s"
+    "Reel 9:16 · 4s": dict(
+        width=480, height=832, num_frames=65, steps=45, shots=1, eta_min=7.5,
+        desc="Vertical 9:16 · 4.1 seconds (65 frames) · 45 steps UniPC (flow_shift=3.0)"
     ),
-    "Reel 9:16 · 3-Shot Story": dict(
-        width=480, height=832, num_frames=25, steps=34, shots=3, eta_min=10.5,
-        desc="Vertical 9:16 HD (720x1280) · 3 camera cuts (4.7s multi-angle Reel) · Step-by-step storyboard preview"
+    "Reel 9:16 · 5s": dict(
+        width=480, height=832, num_frames=81, steps=45, shots=1, eta_min=9.5,
+        desc="Vertical 9:16 · 5.1 seconds (81 frames, native Wan 2.1 max) · 45 steps UniPC (flow_shift=3.0)"
     ),
-    "Cinema 16:9 · Widescreen": dict(
-        width=832, height=480, num_frames=33, steps=38, shots=1, eta_min=5.0,
-        desc="Widescreen 16:9 HD (1280x720) · 1 shot (2.1s) · 38 steps UniPC · Keyframe preview in ~6s"
+    "Cinema 16:9 · 4s": dict(
+        width=832, height=480, num_frames=65, steps=45, shots=1, eta_min=7.5,
+        desc="Widescreen 16:9 · 4.1 seconds (65 frames) · 45 steps UniPC (flow_shift=3.0)"
     ),
 }
 
@@ -480,44 +481,43 @@ DURATION_PRESETS = {
 def get_preset(name: str) -> dict:
     """Resolve preset by canonical name or backward-compatible alias."""
     aliases = {
-        "Reel 9:16 (HQ 480p)": "Reel 9:16 · Single Shot",
-        "Reel 9:16 (Extended 3s)": "Reel 9:16 · 3-Shot Story",
-        "Cinema 16:9 (Landscape)": "Cinema 16:9 · Widescreen",
-        "2s": "Reel 9:16 · Single Shot",
-        "2s HQ (480p)": "Cinema 16:9 · Widescreen",
-        "3s": "Reel 9:16 · 3-Shot Story",
-        "5s": "Reel 9:16 · 3-Shot Story",
-        "480p": "Reel 9:16 · Single Shot",
-        "reel": "Reel 9:16 · Single Shot",
-        "vertical": "Reel 9:16 · Single Shot",
-        "landscape": "Cinema 16:9 · Widescreen",
-        "Cinematic 480p (HQ)": "Cinema 16:9 · Widescreen",
-        "Widescreen Fast (1.5s)": "Reel 9:16 · Single Shot",
-        "Extended Motion (3.0s)": "Reel 9:16 · 3-Shot Story",
+        "Reel 9:16 · Single Shot": "Reel 9:16 · 4s",
+        "Reel 9:16 · 3-Shot Story": "Reel 9:16 · 5s",
+        "Cinema 16:9 · Widescreen": "Cinema 16:9 · 4s",
+        "Reel 9:16 (HQ 480p)": "Reel 9:16 · 4s",
+        "Reel 9:16 (Extended 3s)": "Reel 9:16 · 5s",
+        "Cinema 16:9 (Landscape)": "Cinema 16:9 · 4s",
+        "2s": "Reel 9:16 · 4s",
+        "2s HQ (480p)": "Cinema 16:9 · 4s",
+        "3s": "Reel 9:16 · 4s",
+        "4s": "Reel 9:16 · 4s",
+        "5s": "Reel 9:16 · 5s",
+        "480p": "Reel 9:16 · 4s",
+        "reel": "Reel 9:16 · 4s",
+        "vertical": "Reel 9:16 · 4s",
+        "landscape": "Cinema 16:9 · 4s",
+        "Cinematic 480p (HQ)": "Cinema 16:9 · 4s",
+        "Widescreen Fast (1.5s)": "Reel 9:16 · 4s",
+        "Extended Motion (3.0s)": "Reel 9:16 · 5s",
     }
     canonical = aliases.get(name, name)
-    return DURATION_PRESETS.get(canonical, DURATION_PRESETS["Reel 9:16 · Single Shot"])
+    return DURATION_PRESETS.get(canonical, DURATION_PRESETS["Reel 9:16 · 4s"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Zero-VRAM Cloud LLM Prompt Director (Official Alibaba LM_EN_SYS_PROMPT Style)
+# Zero-VRAM Cloud LLM Prompt Director (Clean Optical Clarity — No Grain/Blur)
 # ══════════════════════════════════════════════════════════════════════════════
-# Directly adapted from Alibaba's official `wan/utils/prompt_extend.py` (LM_EN_SYS_PROMPT).
-# Avoids synthetic CGI buzzwords ("8k, ultra-sharp, hyper-detailed") that cause plastic textures,
-# using natural 35mm documentary film prose and simple, direct motion verbs.
 _LLM_SYSTEM_PROMPT = (
-    "You are a prompt engineer for Alibaba Wan 2.1, aiming to rewrite user inputs into natural, "
-    "high-quality English video prompts (80-100 words) without altering the original meaning.\n"
+    "You are a prompt engineer for Alibaba Wan 2.1, aiming to rewrite user inputs into clear, "
+    "high-quality English video prompts (70-90 words) without altering the original meaning.\n"
     "Task requirements:\n"
-    "1. Start with the photography style: 'Documentary 35mm film photography, ...' unless another style is requested.\n"
-    "2. Describe the main subject's concrete visual appearance, materials, colors, and natural posture in clear, simple sentences.\n"
-    "3. Emphasize natural, unhurried physical motion using simple and direct verbs, plus smooth camera movement.\n"
-    "4. Describe the background environment, soft natural lighting, and realistic surface textures (e.g. subtle 35mm film grain).\n"
-    "5. End with the shot scale and camera angle (e.g. 'Medium tracking shot at eye-level.').\n"
-    "6. NEVER use CGI buzzwords like '8k', 'hyper-realistic', 'unreal engine', or abstract math jargon.\n"
+    "1. Describe the main subject's concrete visual appearance, clean surface textures, colors, and natural posture in clear, simple sentences.\n"
+    "2. Emphasize natural, continuous physical motion using simple and direct verbs, plus steady camera framing.\n"
+    "3. Describe the background environment and balanced, clean natural lighting with sharp optical focus.\n"
+    "4. NEVER mention 'film grain', 'motion blur', 'noise', 'vintage grain', or CGI buzzwords.\n"
     "Return a JSON object with keys:\n"
-    "- 'positive': the 80-100 word natural English paragraph.\n"
-    "- 'negative': 8-12 specific visual deformations to avoid for this subject."
+    "- 'positive': the 70-90 word clear English paragraph.\n"
+    "- 'negative': 8-12 specific visual artifacts to avoid for this subject."
 )
 
 
@@ -545,12 +545,8 @@ def _translate_to_english(text: str) -> str:
 
 def enhance_prompt_and_negative(prompt: str, is_vertical: bool = True) -> Tuple[str, str]:
     """
-    Zero-VRAM / Zero-RAM Natural Film Prompt & Negative-Prompt Director:
-      - Tier 1: Hugging Face Serverless Inference API (Qwen/Qwen2.5-72B-Instruct) if HF_TOKEN is set.
-      - Tier 2: Cloud Auto-Translate + Official Alibaba Wan 2.1 Documentary Film Prose Composer.
-
-    Returns:
-        (enhanced_positive_prompt, dynamic_negative_prompt)
+    Zero-VRAM / Zero-RAM Prompt Director focused on clean optical clarity and sharp surface texture
+    (never injects 'film grain' or 'motion blur' which degrade 480p latent textures).
     """
     import json
     import urllib.request
@@ -559,12 +555,11 @@ def enhance_prompt_and_negative(prompt: str, is_vertical: bool = True) -> Tuple[
     if not raw:
         return raw, WAN_NEGATIVE_PROMPT
 
-    # Strip any synthetic CGI buzzwords if present in preset chips
     cleaned_raw = raw
     for buzz in ("sharp 8k,", "8k,", "ultra-realistic", "photorealistic,"):
         cleaned_raw = cleaned_raw.replace(buzz, "").strip()
 
-    # Tier 1: Hugging Face Serverless Router (Qwen2.5-72B-Instruct — official Wan 2.1 captioner)
+    # Tier 1: Hugging Face Serverless Router (Qwen2.5-72B-Instruct)
     hf_token = os.environ.get("HF_TOKEN", "").strip()
     if hf_token:
         try:
@@ -574,8 +569,8 @@ def enhance_prompt_and_negative(prompt: str, is_vertical: bool = True) -> Tuple[
                     {"role": "system", "content": _LLM_SYSTEM_PROMPT},
                     {"role": "user", "content": cleaned_raw},
                 ],
-                "max_tokens": 260,
-                "temperature": 0.4,
+                "max_tokens": 240,
+                "temperature": 0.35,
                 "response_format": {"type": "json_object"},
             }).encode("utf-8")
             req = urllib.request.Request(
@@ -593,197 +588,98 @@ def enhance_prompt_and_negative(prompt: str, is_vertical: bool = True) -> Tuple[
                 neg = str(obj.get("negative", "")).strip()
                 if len(pos) > 35:
                     full_neg = f"{WAN_NEGATIVE_PROMPT}, {neg}" if neg else WAN_NEGATIVE_PROMPT
-                    print(f"[Wan 2.1 Film Director · Qwen2.5-72B] Natural film prompt ({len(pos.split())} words)")
+                    print(f"[Wan 2.1 Prompt Director · Qwen2.5-72B] Enhanced prompt ({len(pos.split())} words)")
                     return pos, full_neg
         except Exception:
             pass
 
-    # Tier 2: Cloud Auto-Translate + Official Alibaba Wan 2.1 Documentary Film Prose Composer
-    # Follows the exact 5-part structure of LM_EN_SYS_PROMPT in wan/utils/prompt_extend.py
+    # Tier 2: Cloud Auto-Translate + Clean Optical Prose Composer (zero grain/blur keywords)
     en_text = _translate_to_english(cleaned_raw).rstrip(".")
     low = en_text.lower()
 
     if any(k in low for k in ("car", "supercar", "drift", "truck", "bike", "motorcycle", "train", "vehicle", "ferrari", "porsche")):
         final_pos = (
-            f"Realistic 35mm documentary film photography, {en_text}. "
-            "The vehicle features solid painted metal bodywork, clean glass windows, and well-defined rubber tires "
+            f"{en_text}. "
+            "The vehicle features clean painted metal bodywork, clear glass windows, and well-defined rubber tires "
             "that maintain their natural proportions as it moves smoothly forward. "
-            "Soft ambient street lighting and natural sky reflections glide across the hood and wet pavement in the background. "
-            "Authentic 35mm film grain texture with natural motion blur. Medium eye-level tracking shot following the vehicle steadily."
+            "Balanced street lighting and clean reflections glide across the hood and pavement in the background. "
+            "Sharp optical focus with clear surface detail, medium eye-level tracking shot."
         )
-        neg_extra = "warped wheels, oval tires, bending car body, asymmetric headlights, cartoon car, toy car"
-    elif any(k in low for k in ("person", "woman", "man", "girl", "boy", "face", "portrait", "human", "dancer", "child")):
+        neg_extra = "warped wheels, oval tires, bending car body, asymmetric headlights, blurry texture"
+    elif any(k in low for k in ("person", "woman", "man", "girl", "boy", "face", "portrait", "human", "dancer", "child", "vlog", "creator")):
         final_pos = (
-            f"Natural 35mm film portrait photography, {en_text}. "
-            "The subject has natural skin texture, expressive eyes, and a relaxed, authentic posture with subtle breathing and gentle head movement. "
-            "Soft diffused natural light illuminates the face evenly, casting gentle shadows against a softly blurred background with shallow depth of field. "
-            "Vintage 35mm film grain texture with organic color tones. Medium close-up shot at eye-level."
+            f"{en_text}. "
+            "The subject has clean, realistic skin detail, clear expressive eyes, and a natural, relaxed posture with smooth, continuous movement. "
+            "Soft, well-balanced daylight illuminates the face and clothing evenly, with a gently blurred background creating natural depth. "
+            "Sharp optical focus on the subject, steady eye-level medium shot."
         )
-        neg_extra = "plastic skin, airbrushed face, asymmetric eyes, extra fingers, mutated hands, stiff mannequin"
+        neg_extra = "plastic skin, blotchy face, asymmetric eyes, extra fingers, mutated hands, grainy face"
     elif any(k in low for k in ("city", "street", "building", "tokyo", "skyscraper", "house", "room", "alley", "architecture", "bridge")):
         final_pos = (
-            f"Realistic 35mm documentary film photography, {en_text}. "
-            "The surrounding buildings feature weathered concrete, brick, and glass windows with straight, solid architectural lines. "
-            "Soft natural light filters through the atmosphere, creating subtle reflections on the ground while the camera pans slowly and smoothly. "
-            "Authentic 35mm film grain texture with natural contrast and realistic depth. Wide medium shot with a slow, steady camera pan."
+            f"{en_text}. "
+            "The surrounding architecture features clean concrete, brick, and glass windows with straight, solid structural lines. "
+            "Balanced natural light illuminates the scene with crisp reflections while the camera glides smoothly forward. "
+            "Clear optical focus and sharp surface textures, wide medium tracking shot."
         )
-        neg_extra = "curved walls, bending buildings, melting windows, wobbly lines, neon oversaturation"
-    elif any(k in low for k in ("wave", "ocean", "water", "sea", "rain", "river", "espresso", "coffee", "glass", "cup", "forest")):
-        final_pos = (
-            f"Natural 35mm documentary photography, {en_text}. "
-            "The liquid and surrounding natural surfaces move at an unhurried, organic pace with realistic ripples, gentle foam, and soft light reflections. "
-            "The background is softly out of focus under diffused natural light, highlighting the authentic physical textures in the foreground. "
-            "Subtle 35mm analog film texture with natural color grading. Steady close-up shot with shallow depth of field."
-        )
-        neg_extra = "artificial CGI water, oversaturated colors, warped glass cup, melting rocks, choppy motion"
+        neg_extra = "curved walls, bending buildings, melting windows, wobbly lines, noisy texture"
     else:
         final_pos = (
-            f"Realistic 35mm documentary film photography, {en_text}. "
-            "The main subject maintains natural physical proportions, authentic material textures, and smooth, unhurried movement within the scene. "
-            "Soft, natural ambient lighting illuminates the environment, with a gently blurred background creating realistic depth of field. "
-            "Subtle 35mm film grain texture and organic color tones. Smooth medium shot with a steady camera."
+            f"{en_text}. "
+            "The main subject maintains accurate physical proportions, clean material textures, and smooth, continuous movement within the scene. "
+            "Balanced natural lighting illuminates the foreground clearly against a softly focused background. "
+            "Crisp optical clarity and realistic colors, steady medium shot."
         )
-        neg_extra = "oversaturated, plastic textures, warped shapes, artificial CGI look"
+        neg_extra = "blotchy textures, warped shapes, noisy, grainy, out of focus"
 
     final_neg = f"{WAN_NEGATIVE_PROMPT}, {neg_extra}"
-    print(f"[Wan 2.1 Film Director] Natural 35mm film prompt composed ({len(final_pos.split())} words)")
+    print(f"[Wan 2.1 Prompt Director] Clean optical prompt composed ({len(final_pos.split())} words)")
     return final_pos, final_neg
-
-
-def _apply_camera_framing(base_prompt: str, camera_directive: str) -> str:
-    """Replace the trailing shot scale sentence with a specific multi-shot camera framing."""
-    sentences = [s.strip() for s in base_prompt.rstrip(".").split(".") if s.strip()]
-    if len(sentences) > 1:
-        sentences[-1] = camera_directive.rstrip(".")
-        return ". ".join(sentences) + "."
-    return f"{base_prompt.rstrip('.')}. {camera_directive.rstrip('.')}."
-
-
-def plan_storyboard(prompt: str, duration: str = "Reel 9:16 · Single Shot", seed: int = -1) -> list:
-    """
-    Build a 1-shot or 3-shot cinematic storyboard plan with consistent lighting and natural 35mm prose.
-    Each returned dict represents one camera cut that can be previewed as a fast keyframe (num_frames=1)
-    and then rendered as a full video clip.
-    """
-    preset = get_preset(duration)
-    is_vertical = preset["height"] > preset["width"]
-    base_pos, neg_prompt = enhance_prompt_and_negative(prompt, is_vertical=is_vertical)
-    base_seed = random.randint(0, 2**31 - 10) if seed is None or int(seed) < 0 else int(seed)
-    n_shots = int(preset.get("shots", 1))
-
-    if n_shots <= 1:
-        return [
-            {
-                "index": 1,
-                "total": 1,
-                "title": "Shot 1 · Primary Take",
-                "camera": "Medium eye-level tracking shot",
-                "raw_prompt": prompt,
-                "prompt": base_pos,
-                "negative_prompt": neg_prompt,
-                "seed": base_seed,
-                "width": preset["width"],
-                "height": preset["height"],
-                "num_frames": preset["num_frames"],
-                "steps": preset["steps"],
-                "preview_path": None,
-            }
-        ]
-
-    camera_specs = [
-        (
-            "Shot 1 · Establishing Wide",
-            "Wide establishing shot",
-            "Wide establishing camera angle showing the full environment and subject in balanced natural light with a slow, steady camera pan",
-        ),
-        (
-            "Shot 2 · Medium Tracking",
-            "Medium eye-level tracking",
-            "Medium eye-level tracking shot following the main subject smoothly at a natural pace with soft background depth of field",
-        ),
-        (
-            "Shot 3 · Close-Up Detail",
-            "Intimate close-up detail",
-            "Close-up detail shot with shallow 35mm depth of field focusing on authentic surface textures, subtle physical motion, and natural light reflections",
-        ),
-    ]
-
-    shots = []
-    for idx, (title, short_cam, cam_sentence) in enumerate(camera_specs[:n_shots], start=1):
-        shots.append(
-            {
-                "index": idx,
-                "total": n_shots,
-                "title": title,
-                "camera": short_cam,
-                "raw_prompt": prompt,
-                "prompt": _apply_camera_framing(base_pos, cam_sentence),
-                "negative_prompt": neg_prompt,
-                "seed": base_seed + (idx - 1) * 101,
-                "width": preset["width"],
-                "height": preset["height"],
-                "num_frames": preset["num_frames"],
-                "steps": preset["steps"],
-                "preview_path": None,
-            }
-        )
-    return shots
 
 
 _GENERATION_LOCK = threading.Lock()  # one job at a time on a single T4
 
 
-def render_shot_preview(pipe, shot: dict, output_dir: str = "outputs") -> str:
+def _decode_single_preview_frame(pipe, output_dir: str, stem_name: str):
     """
-    Fast Keyframe Preview (num_frames=1, 18 steps, ~6 seconds on Tesla T4).
-    Uses only 6,240 tokens (T_L=1) and < 9.0 GB VRAM so the user can inspect composition,
-    lighting, and framing for each shot step-by-step before committing to full video rendering.
+    Decode Frame 0 of the CURRENT 3D video trajectory directly from `pipe.scheduler.model_outputs[-1]`.
+    Because `model_outputs[-1]` is the flow-matching x0 prediction of the actual 3D video tensor,
+    this preview is 100% mathematically locked to the video being rendered (never a different scene),
+    and decoding a 1-frame slice [1, 16, 1, H_L, W_L] takes only ~0.15s and <300 MB VRAM.
     """
     import numpy as np
     from PIL import Image
 
-    os.makedirs(output_dir, exist_ok=True)
-    preview_path = os.path.join(output_dir, f"preview_shot_{shot['index']}_{int(time.time())}_{shot['seed']}.png")
+    try:
+        model_outputs = getattr(pipe.scheduler, "model_outputs", None)
+        if not model_outputs or model_outputs[-1] is None:
+            return None
+        x0_slice = model_outputs[-1][:, :, 0:1, :, :].detach().clone()
+        vae = pipe.vae
+        x0_slice = x0_slice.to(device=vae.device, dtype=vae.dtype)
 
-    with _GENERATION_LOCK:
-        try:
-            from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
-            if not isinstance(pipe.scheduler, UniPCMultistepScheduler) or getattr(pipe.scheduler.config, "flow_shift", None) != 5.0:
-                pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow_shift=5.0)
-        except Exception:
-            pass
-        if torch.cuda.is_available() and getattr(pipe, "transformer", None) is not None:
-            pipe.transformer.to("cuda")
-        clear_cuda_cache()
+        latents_mean = (
+            torch.tensor(vae.config.latents_mean, device=x0_slice.device, dtype=x0_slice.dtype)
+            .view(1, vae.config.z_dim, 1, 1, 1)
+        )
+        latents_std = 1.0 / (
+            torch.tensor(vae.config.latents_std, device=x0_slice.device, dtype=x0_slice.dtype)
+            .view(1, vae.config.z_dim, 1, 1, 1)
+        )
+        x0_slice = x0_slice / latents_std + latents_mean
 
-        output = frame = None
-        try:
-            with torch.inference_mode():
-                output = pipe(
-                    prompt=shot["prompt"],
-                    negative_prompt=shot["negative_prompt"],
-                    width=shot["width"],
-                    height=shot["height"],
-                    num_frames=1,
-                    num_inference_steps=18,
-                    guidance_scale=5.0,
-                    generator=torch.Generator(device="cpu").manual_seed(int(shot["seed"])),
-                )
-            frames = output.frames[0] if hasattr(output, "frames") else output.images[0]
-            frame = frames[0] if isinstance(frames, (list, tuple)) else frames[0]
-            if isinstance(frame, Image.Image):
-                frame.save(preview_path)
-            else:
-                arr = np.asarray(frame)
-                if arr.dtype != np.uint8:
-                    arr = np.clip(arr * 255.0 if arr.max() <= 1.05 else arr, 0, 255).astype(np.uint8)
-                Image.fromarray(arr).save(preview_path)
-        finally:
-            del output, frame
-            clear_cuda_cache()
-
-    shot["preview_path"] = preview_path
-    return preview_path
+        with torch.inference_mode():
+            decoded = vae.decode(x0_slice, return_dict=False)[0]
+        # decoded shape: [1, 3, 1, H, W] in [-1, 1]
+        img_tensor = decoded[0, :, 0, :, :].clamp(-1.0, 1.0)
+        img_np = ((img_tensor.permute(1, 2, 0).cpu().float().numpy() + 1.0) * 127.5).astype(np.uint8)
+        os.makedirs(output_dir, exist_ok=True)
+        preview_path = os.path.join(output_dir, f"{stem_name}_live_preview.png")
+        Image.fromarray(img_np).save(preview_path)
+        del decoded, x0_slice, img_tensor
+        return preview_path
+    except Exception as e:
+        print(f"[Live Preview] skipped: {e}")
+        return None
 
 
 def load_audio_pipeline(device: str = "cpu", dtype: torch.dtype = torch.float16):
@@ -813,14 +709,11 @@ def _ffmpeg_exe() -> str:
         return "ffmpeg"
 
 
-def export_hq_video(frames, output_path: str, fps: int = 16, upscale_factor: float = 1.5) -> str:
+def export_hq_video(frames, output_path: str, fps: int = 16) -> str:
     """
-    Organic 35mm Film Mastering Exporter (0 MB GPU VRAM):
-    - Preserves 100% of the VAE's natural organic micro-texture (NO waxy hqdn3d smoothing)
-    - Upscales 1.5x via Lanczos (480x832 -> 720x1280 HD Reel / 832x480 -> 1280x720 HD)
-    - Applies subtle analog film tone curve (eq=contrast=1.03:saturation=0.95:gamma=0.98)
-    - Applies gentle optical clarity (unsharp=3:3:0.18:3:3:0.0) + fine 720p photochemical grain (noise=c0s=2:c0f=t+u)
-    - Encodes visually lossless H.264 (-crf 14 -preset slow)
+    Clean Lossless H.264 Exporter (0 MB GPU VRAM):
+    Exports the pure VAE decoded frames directly at native resolution with CRF 14
+    and zero artificial noise/eq filters so surface textures remain 100% clean.
     """
     import numpy as np
 
@@ -832,62 +725,24 @@ def export_hq_video(frames, output_path: str, fps: int = 16, upscale_factor: flo
             else:
                 arr = np.clip(arr, 0, 255).astype(np.uint8)
         _, h, w, _ = arr.shape
-        out_w = (int(round(w * upscale_factor)) // 2) * 2
-        out_h = (int(round(h * upscale_factor)) // 2) * 2
-        raw_bytes = arr.tobytes()
-
-        for vf in (
-            f"scale={out_w}:{out_h}:flags=lanczos,eq=contrast=1.03:saturation=0.95:gamma=0.98,unsharp=3:3:0.18:3:3:0.0,noise=c0s=2:c0f=t+u",
-            f"scale={out_w}:{out_h}:flags=lanczos,unsharp=3:3:0.18:3:3:0.0",
-        ):
-            cmd = [
-                _ffmpeg_exe(), "-y", "-loglevel", "error",
-                "-f", "rawvideo", "-vcodec", "rawvideo",
-                "-s", f"{w}x{h}", "-pix_fmt", "rgb24", "-r", str(fps),
-                "-i", "-",
-                "-vf", vf,
-                "-c:v", "libx264", "-crf", "14", "-preset", "slow",
-                "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                output_path,
-            ]
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            proc.communicate(input=raw_bytes)
-            if proc.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                return output_path
+        cmd = [
+            _ffmpeg_exe(), "-y", "-loglevel", "error",
+            "-f", "rawvideo", "-vcodec", "rawvideo",
+            "-s", f"{w}x{h}", "-pix_fmt", "rgb24", "-r", str(fps),
+            "-i", "-",
+            "-c:v", "libx264", "-crf", "14", "-preset", "slow",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            output_path,
+        ]
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc.communicate(input=arr.tobytes())
+        if proc.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return output_path
     except Exception:
         pass
 
     from diffusers.utils import export_to_video
     export_to_video(frames, output_path, fps=fps)
-    return output_path
-
-
-def concat_mp4_clips(clip_paths: list, output_path: str) -> str:
-    """Concatenate multiple H.264 MP4 shots into a single seamless Reel without re-encoding."""
-    if len(clip_paths) == 1:
-        os.replace(clip_paths[0], output_path)
-        return output_path
-
-    list_file = f"{output_path}.concat.txt"
-    try:
-        with open(list_file, "w", encoding="utf-8") as f:
-            for p in clip_paths:
-                abs_p = os.path.abspath(p).replace("'", "'\\''")
-                f.write(f"file '{abs_p}'\n")
-        subprocess.run(
-            [
-                _ffmpeg_exe(), "-y", "-loglevel", "error",
-                "-f", "concat", "-safe", "0",
-                "-i", list_file,
-                "-c", "copy", "-movflags", "+faststart",
-                output_path,
-            ],
-            check=True,
-            capture_output=True,
-        )
-    finally:
-        if os.path.exists(list_file):
-            os.remove(list_file)
     return output_path
 
 
@@ -949,128 +804,134 @@ def mux_audio(video_path: str, wav_path: str, output_path: str, duration_s: floa
     return output_path
 
 
-def render_storyboard_video(
-    pipe,
-    shots: list,
+def create_clip(
+    pipe=None,
     audio_pipe=None,
+    prompt: str = "",
+    duration: str = "Reel 9:16 · 4s",
+    seed: int = -1,
     output_dir: str = "outputs",
     progress_cb=None,
+    cancel_event: Optional[threading.Event] = None,
 ):
     """
-    Render a complete 1-shot or 3-shot storyboard into a finished 720p HD MP4 Reel.
-    Features:
-    - Uses the locked seeds and camera prompts from the storyboard preview
-    - Official UniPC(flow_shift=5.0) solver with Dynamic CFG Annealing (5.2 -> 4.4)
-    - Pre-VAE Dynamic DiT Eviction to CPU RAM (drops Peak VRAM from 13.2 GB to ~10.4 GB)
-    - Organic 720p HD Lanczos + 35mm Analog Mastering (CRF 14)
-    - Seamless FFmpeg multi-shot concatenation + optional AudioLDM 2 sound muxing
+    Generate a full 4.1s (65-frame) or 5.1s (81-frame) video with:
+    - Official Wan 2.1 480P UniPCMultistepScheduler(flow_shift=3.0) for crisp surface textures
+    - Constant guidance_scale=5.0 (zero multistep finite-difference corruption)
+    - Live Frame Preview decoded directly from the active 3D video tensor at steps 10, 22, and 34
+    - Pre-VAE Dynamic DiT Eviction to CPU RAM before vae.decode() so 65-81 frames never OOM on T4
     """
+    if isinstance(audio_pipe, str) and not prompt:
+        prompt = audio_pipe
+        audio_pipe = None
+
+    pipe = get_cached_pipeline(pipe) or load_wan_t4_pipeline()
+    preset = get_preset(duration)
+    is_vertical = preset["height"] > preset["width"]
+    pos_prompt, neg_prompt = enhance_prompt_and_negative(prompt, is_vertical=is_vertical)
+
+    seed = random.randint(0, 2**31 - 1) if seed is None or int(seed) < 0 else int(seed)
     os.makedirs(output_dir, exist_ok=True)
-    base_seed = int(shots[0]["seed"])
-    raw_prompt = shots[0].get("raw_prompt", shots[0]["prompt"])
-    stem = os.path.join(output_dir, f"wan_{int(time.time())}_{base_seed}")
+    stem_name = f"wan_{int(time.time())}_{seed}"
+    stem = os.path.join(output_dir, stem_name)
     silent_path, wav_path, final_path = f"{stem}_silent.mp4", f"{stem}.wav", f"{stem}.mp4"
-    n_shots = len(shots)
-    total_frames = sum(int(s["num_frames"]) for s in shots)
-    total_duration_s = total_frames / FPS
+    duration_s = preset["num_frames"] / FPS
+    total_steps = int(preset["steps"])
+    live_preview_steps = {8, 18, 30}
+    last_preview_path = [None]
+
+    def _notify(msg: str, preview_img: Optional[str] = None):
+        if progress_cb is not None:
+            try:
+                progress_cb(msg, preview_img or last_preview_path[0])
+            except TypeError:
+                try:
+                    progress_cb(msg)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+    def _step_callback(pipeline, step_index, timestep, callback_kwargs):
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("Generation stopped by user.")
+
+        cur_step = step_index + 1
+        pct = int((cur_step / max(total_steps, 1)) * 100)
+
+        # Decode a 1-frame live preview directly from the active 3D video's x0 prediction
+        if cur_step in live_preview_steps:
+            prev_path = _decode_single_preview_frame(pipeline, output_dir, stem_name)
+            if prev_path:
+                last_preview_path[0] = prev_path
+
+        if cur_step % 2 == 0 or cur_step == 1 or cur_step == total_steps or cur_step in live_preview_steps:
+            _notify(f"Step {cur_step}/{total_steps} ({pct}%) · {preset['num_frames']} frames ({duration_s:.1f}s)")
+
+        # Pre-VAE Dynamic Eviction: right as the last DiT step completes, temporarily offload
+        # the 2.6 GB DiT to our 9.7 GB of free System RAM so 3D VAE decoding of 65-81 frames has >12 GB free VRAM
+        if step_index == total_steps - 1:
+            _notify(f"Decoding {preset['num_frames']} frames ({duration_s:.1f}s) with 3D Causal VAE...")
+            try:
+                pipeline.transformer.to("cpu")
+                clear_cuda_cache()
+            except Exception:
+                pass
+        return callback_kwargs
 
     with _GENERATION_LOCK:
         t0 = time.time()
+        # Ensure official 480P UniPCMultistepScheduler(flow_shift=3.0)
         try:
-            from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
-            if not isinstance(pipe.scheduler, UniPCMultistepScheduler) or getattr(pipe.scheduler.config, "flow_shift", None) != 5.0:
-                pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow_shift=5.0)
+            from diffusers.schedulers import UniPCMultistepScheduler
+            pipe.scheduler = UniPCMultistepScheduler(
+                prediction_type="flow_prediction",
+                use_flow_sigmas=True,
+                num_train_timesteps=1000,
+                flow_shift=3.0,
+            )
         except Exception:
             pass
 
-        shot_mp4s = []
-        for idx, shot in enumerate(shots, start=1):
-            total_steps = int(shot["steps"])
-            shot_path = f"{stem}_shot{idx}.mp4"
+        if torch.cuda.is_available() and getattr(pipe, "transformer", None) is not None:
+            pipe.transformer.to("cuda")
+        clear_cuda_cache()
 
-            def _step_callback(pipeline, step_index, timestep, callback_kwargs, _idx=idx, _steps=total_steps, _title=shot["title"]):
-                progress = (step_index + 1) / max(_steps, 1)
-                # 1. Dynamic CFG Annealing: 5.2 in first 45% (structural lock) -> 4.4 in final 55% (organic texture & light)
-                if progress <= 0.45:
-                    pipeline._guidance_scale = 5.2
-                else:
-                    ratio = (progress - 0.45) / 0.55
-                    pipeline._guidance_scale = 5.2 - 0.8 * ratio
-
-                if progress_cb is not None and ((step_index + 1) % 2 == 0 or step_index == 0 or step_index == _steps - 1):
-                    phase = "Structure lock" if progress <= 0.45 else "35mm texture refinement"
-                    try:
-                        progress_cb(
-                            f"Rendering {_title} ({_idx}/{n_shots}) · Step {step_index + 1}/{_steps} ({int(progress * 100)}%) · {phase}"
-                        )
-                    except Exception:
-                        pass
-
-                # 2. Pre-VAE Dynamic Eviction: right as the last DiT step completes, temporarily offload
-                # the 2.8 GB DiT to our 9.7 GB of free System RAM so 3D VAE decoding has >4.5 GB free VRAM!
-                if step_index == _steps - 1:
-                    try:
-                        pipeline.transformer.to("cpu")
-                        clear_cuda_cache()
-                    except Exception:
-                        pass
-                return callback_kwargs
-
+        _notify(f"Starting {duration_s:.1f}s video generation ({preset['num_frames']} frames, {total_steps} steps)...")
+        output = frames = None
+        try:
+            with torch.inference_mode():
+                output = pipe(
+                    prompt=pos_prompt,
+                    negative_prompt=neg_prompt,
+                    width=preset["width"],
+                    height=preset["height"],
+                    num_frames=preset["num_frames"],
+                    num_inference_steps=total_steps,
+                    guidance_scale=5.0,  # Strictly constant 5.0 (official Wan 2.1 setting)
+                    generator=torch.Generator(device="cpu").manual_seed(seed),
+                    callback_on_step_end=_step_callback,
+                )
+            frames = output.frames[0]
+            _notify("Encoding lossless H.264 MP4...")
+            export_hq_video(frames, silent_path, fps=FPS)
+        finally:
+            del output, frames
             if torch.cuda.is_available() and getattr(pipe, "transformer", None) is not None:
-                pipe.transformer.to("cuda")
-            clear_cuda_cache()
-
-            output = frames = None
-            try:
-                with torch.inference_mode():
-                    output = pipe(
-                        prompt=shot["prompt"],
-                        negative_prompt=shot["negative_prompt"],
-                        width=int(shot["width"]),
-                        height=int(shot["height"]),
-                        num_frames=int(shot["num_frames"]),
-                        num_inference_steps=total_steps,
-                        guidance_scale=5.2,
-                        generator=torch.Generator(device="cpu").manual_seed(int(shot["seed"])),
-                        callback_on_step_end=_step_callback,
-                    )
-                frames = output.frames[0]
-                if progress_cb is not None:
-                    try:
-                        progress_cb(f"Mastering {shot['title']} ({idx}/{n_shots}) to 720p HD 35mm film...")
-                    except Exception:
-                        pass
-                export_hq_video(frames, shot_path, fps=FPS)
-                shot_mp4s.append(shot_path)
-            finally:
-                del output, frames
-                if torch.cuda.is_available() and getattr(pipe, "transformer", None) is not None:
-                    try:
-                        pipe.transformer.to("cuda")
-                    except Exception:
-                        pass
-                clear_cuda_cache()
-
-        concat_mp4_clips(shot_mp4s, silent_path)
-        for p in shot_mp4s:
-            if os.path.exists(p) and p != silent_path:
                 try:
-                    os.remove(p)
+                    pipe.transformer.to("cuda")
                 except Exception:
                     pass
+            clear_cuda_cache()
 
         has_sound = False
         if audio_pipe is not None:
             try:
-                if progress_cb is not None:
-                    try:
-                        progress_cb("Synthesizing synchronized ambient soundtrack (AudioLDM 2)...")
-                    except Exception:
-                        pass
-                generate_sound(audio_pipe, raw_prompt, total_duration_s, wav_path, base_seed, wan_pipe=pipe)
-                mux_audio(silent_path, wav_path, final_path, total_duration_s)
+                _notify("Synthesizing ambient soundtrack (AudioLDM 2)...")
+                generate_sound(audio_pipe, prompt, duration_s, wav_path, seed, wan_pipe=pipe)
+                mux_audio(silent_path, wav_path, final_path, duration_s)
                 has_sound = True
-            except Exception as e:  # never lose the video because of the sound step
+            except Exception as e:
                 print(f"[sound] skipped: {type(e).__name__}: {e}")
             finally:
                 clear_cuda_cache()
@@ -1082,19 +943,6 @@ def render_storyboard_video(
         else:
             os.replace(silent_path, final_path)
 
-        return final_path, base_seed, time.time() - t0, has_sound
+        return final_path, seed, time.time() - t0, has_sound
 
-
-def create_clip(pipe=None, audio_pipe=None, prompt: str = "", duration: str = "Reel 9:16 · Single Shot", seed: int = -1, output_dir: str = "outputs"):
-    """
-    Backward-compatible one-call helper: plans storyboard and renders final MP4 clip.
-    Auto-loads `pipe` if not yet initialized.
-    """
-    if isinstance(audio_pipe, str) and not prompt:
-        prompt = audio_pipe
-        audio_pipe = None
-
-    pipe = get_cached_pipeline(pipe) or load_wan_t4_pipeline()
-    shots = plan_storyboard(prompt=prompt, duration=duration, seed=seed)
-    return render_storyboard_video(pipe, shots=shots, audio_pipe=audio_pipe, output_dir=output_dir)
 
