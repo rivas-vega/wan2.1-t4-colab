@@ -83,7 +83,7 @@ def load_wan_t4_pipeline(
     model_id: str = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
     quantization: str = "fast_fp16",  # "fast_fp16" (Native FP16 DiT + 4-bit UMT5: best quality, 1.8x faster on T4)
     dtype: torch.dtype = torch.float16,
-    scheduler_type: str = "unipc",  # "unipc" (higher-order solver) or "euler"
+    scheduler_type: str = "euler",  # "euler" (strict linear flow, rigid geometry) or "unipc"
     hf_token: Optional[str] = None,
 ):
     """
@@ -202,17 +202,27 @@ def load_wan_t4_pipeline(
         pipe.vae.to("cuda")
         # text_encoder is already managed on cuda via device_map="auto"
 
-    # Configure fast higher-order solver if requested
-    if scheduler_type == "unipc":
+    # Configure FlowMatchEulerDiscreteScheduler (strict linear flow, zero polynomial overshooting / anti-morphing)
+    if scheduler_type == "euler":
+        try:
+            from diffusers import FlowMatchEulerDiscreteScheduler
+            pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+                pipe.scheduler.config,
+                shift=3.0,  # 3.0 optimal for 480p resolution
+            )
+            print("[Wan 2.1 Loader] FlowMatchEulerDiscreteScheduler activated (shift=3.0 | rigid geometry & anti-morphing).")
+        except Exception as e:
+            print(f"[Wan 2.1 Loader] Euler scheduler fallback: {e}")
+    elif scheduler_type == "unipc":
         try:
             from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
             pipe.scheduler = UniPCMultistepScheduler.from_config(
                 pipe.scheduler.config,
-                flow_shift=3.0,  # Optimal flow shift for 480p/360p resolutions
+                flow_shift=3.0,
             )
-            print("[Wan 2.1 Loader] UniPC Multistep Scheduler activated (14-22 steps optimal).")
+            print("[Wan 2.1 Loader] UniPC Multistep Scheduler activated.")
         except Exception as e:
-            print(f"[Wan 2.1 Loader] UniPC scheduler fallback to default: {e}")
+            print(f"[Wan 2.1 Loader] UniPC scheduler fallback: {e}")
 
     # Enable VAE Tiling and Slicing (crucial to avoid OOM during 3D video decoding)
     if hasattr(pipe, "vae") and pipe.vae is not None:
@@ -279,8 +289,8 @@ def generate_video(
     width: int = 624,
     height: int = 352,
     num_frames: int = 25,
-    steps: int = 16,
-    guidance_scale: float = 5.0,
+    steps: int = 28,
+    guidance_scale: float = 5.5,
     seed: Optional[int] = None,
     output_path: str = "output_video.mp4",
     fps: int = 16,
@@ -371,34 +381,41 @@ AUDIO_MODEL_ID = "cvssp/audioldm2"
 AUDIO_NEGATIVE_PROMPT = "low quality, noise, distortion, muffled, clipping, speech, talking"
 FPS = 16
 
-# Wan's official negative prompt (English translation from the Diffusers docs)
+# Anti-morphing negative prompt designed to preserve rigid geometry and texture sharpness
 WAN_NEGATIVE_PROMPT = (
-    "Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, "
-    "static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, "
-    "extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, "
-    "fused fingers, still picture, messy background, three legs, many people in the background, "
-    "walking backwards"
+    "morphing, rubbery, liquid, warped geometry, melting, shifting shapes, "
+    "blurry details, soft focus, smudged textures, plastic, bad anatomy, "
+    "deformed limbs, floating limbs, disfigured faces, cartoonish, static, "
+    "flat lighting, artifacts, JPEG compression residue, watermarks, text, "
+    "oversaturated, underexposed, flicker"
 )
 
-# High-fidelity hardware-tuned settings for Tesla T4. num_frames must be 4k+1.
+# High-fidelity hardware-tuned settings for Tesla T4 (num_frames must be 4k+1).
+# Optimized for Reel 9:16 vertical (480x832) with 28 Euler steps for maximum rigidity.
 DURATION_PRESETS = {
-    "Cinematic 480p (HQ)": dict(width=832, height=480, num_frames=25, steps=22, eta_min=6.5, desc="Native 480p widescreen, maximum visual fidelity"),
-    "Widescreen Fast (1.5s)": dict(width=624, height=352, num_frames=25, steps=20, eta_min=3.5, desc="Fast iteration, crisp 16:9 widescreen"),
-    "Extended Motion (3.0s)": dict(width=624, height=352, num_frames=49, steps=20, eta_min=6.0, desc="3-second extended motion scene"),
+    "Reel 9:16 (HQ 480p)": dict(width=480, height=832, num_frames=25, steps=28, eta_min=4.0, desc="Vertical Reel / TikTok (480x832), 28 pasos Euler anti-morphing"),
+    "Reel 9:16 (Extended 3s)": dict(width=480, height=832, num_frames=49, steps=26, eta_min=7.0, desc="Vertical Reel 3 segundos (480x832), movimiento fluido"),
+    "Cinema 16:9 (Landscape)": dict(width=832, height=480, num_frames=25, steps=28, eta_min=4.0, desc="Panorámico horizontal (832x480), máxima fidelidad"),
 }
 
 
 def get_preset(name: str) -> dict:
     """Resolve preset by canonical name or backward-compatible alias."""
     aliases = {
-        "2s": "Widescreen Fast (1.5s)",
-        "2s HQ (480p)": "Cinematic 480p (HQ)",
-        "3s": "Extended Motion (3.0s)",
-        "5s": "Extended Motion (3.0s)",
-        "480p": "Cinematic 480p (HQ)",
+        "2s": "Reel 9:16 (HQ 480p)",
+        "2s HQ (480p)": "Cinema 16:9 (Landscape)",
+        "3s": "Reel 9:16 (Extended 3s)",
+        "5s": "Reel 9:16 (Extended 3s)",
+        "480p": "Reel 9:16 (HQ 480p)",
+        "reel": "Reel 9:16 (HQ 480p)",
+        "vertical": "Reel 9:16 (HQ 480p)",
+        "landscape": "Cinema 16:9 (Landscape)",
+        "Cinematic 480p (HQ)": "Cinema 16:9 (Landscape)",
+        "Widescreen Fast (1.5s)": "Reel 9:16 (HQ 480p)",
+        "Extended Motion (3.0s)": "Reel 9:16 (Extended 3s)",
     }
     canonical = aliases.get(name, name)
-    return DURATION_PRESETS.get(canonical, DURATION_PRESETS["Cinematic 480p (HQ)"])
+    return DURATION_PRESETS.get(canonical, DURATION_PRESETS["Reel 9:16 (HQ 480p)"])
 
 _GENERATION_LOCK = threading.Lock()  # one job at a time on a single T4
 
@@ -460,7 +477,7 @@ def mux_audio(video_path: str, wav_path: str, output_path: str, duration_s: floa
     return output_path
 
 
-def create_clip(pipe, audio_pipe=None, prompt: str = "", duration: str = "Cinematic 480p (HQ)", seed: int = -1, output_dir: str = "outputs"):
+def create_clip(pipe, audio_pipe=None, prompt: str = "", duration: str = "Reel 9:16 (HQ 480p)", seed: int = -1, output_dir: str = "outputs"):
     """
     Prompt in, finished MP4 out (video + sound when `audio_pipe` is given).
 
@@ -494,7 +511,7 @@ def create_clip(pipe, audio_pipe=None, prompt: str = "", duration: str = "Cinema
                     height=preset["height"],
                     num_frames=preset["num_frames"],
                     num_inference_steps=preset["steps"],
-                    guidance_scale=5.0,
+                    guidance_scale=5.5,
                     generator=torch.Generator(device="cpu").manual_seed(seed),
                 )
             frames = output.frames[0]

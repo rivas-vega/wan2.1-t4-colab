@@ -18,10 +18,10 @@ import gradio as gr
 from pipeline_utils import DURATION_PRESETS, create_clip
 
 EXAMPLES = {
-    "Drift at sunset": "A red vintage sports car drifting around a mountain hairpin at sunset, tire smoke, cinematic tracking shot",
-    "Stormy coast": "Huge waves crashing against black volcanic rocks during a storm, sea spray, slow motion, moody light",
-    "Neon rain": "Rain falling on a neon-lit Tokyo street at night, reflections on wet asphalt, people with umbrellas",
-    "Forest stream": "A clear stream flowing over mossy rocks in a misty pine forest at dawn, soft light rays",
+    "Tokyo Drift (Reel)": "Vertical Reel shot, sharp 8k, sleek metallic black supercar accelerating through neon-lit Shibuya rain, solid reflections on wet asphalt, photorealistic, cinematic camera tilt",
+    "Cyberpunk City": "Vertical mobile video, slow cinematic upward pan of a towering neon skyscraper in cyberpunk city, rain pouring, crisp architectural details, neon reflections, ultra-realistic",
+    "Turquoise Wave": "Vertical 9:16 drone shot tracking a massive turquoise barrel wave crashing onto black volcanic sand, crisp water spray, golden hour rim lighting, slow motion",
+    "Golden Espresso": "Vertical macro close-up of rich golden espresso pouring steadily into a clear glass cup, thick crema swirling, sharp lighting, photorealistic textures",
 }
 
 CSS = """
@@ -56,7 +56,7 @@ footer { display: none !important; }
 #brand .name { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #f2f2f3; }
 #brand .sub  { font-size: 14px; color: #8a8a92; }
 
-#stage { border: 1px solid #232327 !important; border-radius: 20px !important; overflow: hidden; background: #111113 !important; }
+#stage { max-width: 420px !important; margin: 0 auto 12px !important; border: 1px solid #232327 !important; border-radius: 20px !important; overflow: hidden; background: #111113 !important; }
 #stage video { border-radius: 20px; }
 
 #status, #status * { color: #8a8a92 !important; font-size: 13px !important; text-align: center; }
@@ -108,7 +108,7 @@ def _hint(length: str, has_sound: bool = False) -> str:
 
 def build_demo(pipe, audio_pipe=None, output_dir: str = "outputs") -> gr.Blocks:
     has_sound = audio_pipe is not None
-    default_length = "Cinematic 480p (HQ)"
+    default_length = "Reel 9:16 (HQ 480p)"
 
     def run(prompt: str, length: str):
         prompt = (prompt or "").strip()
