@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 310" width="100%" height="100%">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 1 2 L 7 5 L 1 8 z" fill="#9ca3af" />
+      <path d="M 1 2 L 7 5 L 1 8 z" fill="#6b7280" />
     </marker>
   </defs>
 
@@ -9,7 +9,7 @@
   <rect width="1040" height="310" rx="14" fill="#ffffff" stroke="#e5e7eb" stroke-width="1.2" />
 
   <!-- Top Title Bar -->
-  <text x="36" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#0064e0" letter-spacing="1.2">PIPELINE ARCHITECTURE</text>
+  <text x="36" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1.2">PIPELINE ARCHITECTURE</text>
   <text x="36" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600" fill="#111827">End-to-End Inference Flow on Tesla T4 (15 GB VRAM / 12.7 GB RAM)</text>
 
   <!-- Stage 1 Box -->
@@ -19,11 +19,11 @@
   <text x="52" y="146" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600" fill="#111827">Text Conditioning</text>
 
   <rect x="52" y="162" width="258" height="48" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
-  <text x="64" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#1f2937">User Prompt &amp; Formatting</text>
+  <text x="64" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">User Prompt &amp; Formatting</text>
   <text x="64" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#6b7280">Multi-lingual input + negative prompt</text>
 
   <rect x="52" y="218" width="258" height="48" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
-  <text x="64" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#0064e0">UMT5-XXL (4-bit NF4 Quant)</text>
+  <text x="64" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">UMT5-XXL (4-bit NF4 Quant)</text>
   <text x="64" y="254" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#4b5563">2.4 GB VRAM on GPU (was 22.7 GB FP32)</text>
 
   <!-- Arrow 1 -> 2 -->
@@ -31,16 +31,16 @@
 
   <!-- Stage 2 Box -->
   <rect x="374" y="86" width="292" height="196" rx="10" fill="#f9fafb" stroke="#cbd5e1" stroke-width="1.2" />
-  <rect x="390" y="104" width="60" height="20" rx="4" fill="#dbeafe" />
-  <text x="420" y="118" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" fill="#0064e0">STAGE 2</text>
+  <rect x="390" y="104" width="60" height="20" rx="4" fill="#e2e8f0" />
+  <text x="420" y="118" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10" font-weight="700" fill="#111827">STAGE 2</text>
   <text x="390" y="146" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600" fill="#111827">3D Latent Denoising</text>
 
   <rect x="390" y="162" width="260" height="48" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
-  <text x="402" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#1f2937">Wan 2.1 DiT 1.3B (Native FP16)</text>
+  <text x="402" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">Wan 2.1 DiT 1.3B (Native FP16)</text>
   <text x="402" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#4b5563">Not quantized · 2.6 GB VRAM · Max quality</text>
 
   <rect x="390" y="218" width="260" height="48" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
-  <text x="402" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#1f2937">UniPC Scheduler (45 steps)</text>
+  <text x="402" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">UniPC Scheduler (45 steps)</text>
   <text x="402" y="254" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#4b5563">flow_shift = 3.0 (480p) · CFG = 5.0 constant</text>
 
   <!-- Arrow 2 -> 3 -->
@@ -53,10 +53,10 @@
   <text x="730" y="146" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600" fill="#111827">Pre-VAE Eviction &amp; Decode</text>
 
   <rect x="730" y="162" width="258" height="48" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
-  <text x="742" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#0064e0">Pre-VAE DiT Offload to CPU</text>
+  <text x="742" y="182" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">Pre-VAE DiT Offload to CPU</text>
   <text x="742" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#4b5563">Frees 2.6 GB VRAM right before decode</text>
 
   <rect x="730" y="218" width="258" height="48" rx="6" fill="#ffffff" stroke="#e5e7eb" stroke-width="1" />
-  <text x="742" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#1f2937">3D Causal VAE (FP32 Tiled)</text>
+  <text x="742" y="238" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="600" fill="#111827">3D Causal VAE (FP32 Tiled)</text>
   <text x="742" y="254" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#4b5563">Clean 65-81 frames · No banding · MP4</text>
 </svg>

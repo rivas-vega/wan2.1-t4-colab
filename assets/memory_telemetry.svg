@@ -12,15 +12,15 @@
 
   <!-- Baseline RAM -->
   <text x="52" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#6b7280">System RAM</text>
-  <text x="486" y="126" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#b91c1c">13.9 / 12.7 GB (OOM Crash)</text>
+  <text x="486" y="126" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#111827">13.9 / 12.7 GB (OOM Crash)</text>
   <rect x="52" y="132" width="434" height="6" rx="3" fill="#e5e7eb" />
-  <rect x="52" y="132" width="434" height="6" rx="3" fill="#dc2626" />
+  <rect x="52" y="132" width="434" height="6" rx="3" fill="#6b7280" />
 
   <!-- Baseline VRAM -->
   <text x="52" y="168" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#6b7280">GPU VRAM (65-frame 3D VAE)</text>
-  <text x="486" y="168" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#b91c1c">15.4 / 15.0 GB (CUDA OOM)</text>
+  <text x="486" y="168" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#111827">15.4 / 15.0 GB (CUDA OOM)</text>
   <rect x="52" y="174" width="434" height="6" rx="3" fill="#e5e7eb" />
-  <rect x="52" y="174" width="434" height="6" rx="3" fill="#dc2626" />
+  <rect x="52" y="174" width="434" height="6" rx="3" fill="#6b7280" />
 
   <!-- Right Column: Optimized -->
   <rect x="538" y="74" width="466" height="136" rx="8" fill="#fafafa" stroke="#e5e7eb" stroke-width="1" />
@@ -30,11 +30,11 @@
   <text x="554" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#6b7280">System RAM</text>
   <text x="988" y="126" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#111827">3.0 / 12.7 GB (9.7 GB free)</text>
   <rect x="554" y="132" width="434" height="6" rx="3" fill="#e5e7eb" />
-  <rect x="554" y="132" width="102" height="6" rx="3" fill="#2563eb" />
+  <rect x="554" y="132" width="102" height="6" rx="3" fill="#111827" />
 
   <!-- Optimized VRAM -->
   <text x="554" y="168" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="500" fill="#6b7280">GPU VRAM (Peak at VAE decode)</text>
   <text x="988" y="168" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#111827">10.4 / 15.0 GB (4.6 GB free)</text>
   <rect x="554" y="174" width="434" height="6" rx="3" fill="#e5e7eb" />
-  <rect x="554" y="174" width="300" height="6" rx="3" fill="#2563eb" />
+  <rect x="554" y="174" width="300" height="6" rx="3" fill="#111827" />
 </svg>

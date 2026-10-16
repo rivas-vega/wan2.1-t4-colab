@@ -2,7 +2,7 @@
   <img src="assets/hero_banner.svg" alt="Wan 2.1 Video Studio" width="100%" />
   <br/><br/>
   <a href="https://colab.research.google.com/github/rivas-vega/wan2.1-t4-colab/blob/main/wan2_1_t4_colab_free_inference.ipynb">
-    <img src="https://img.shields.io/badge/Launch_in_Colab-Google_Colab_T4-0064e0?style=flat-square&logo=googlecolab&logoColor=white" alt="Open In Colab" />
+    <img src="https://img.shields.io/badge/Launch_in_Colab-Google_Colab_T4-374151?style=flat-square&labelColor=111827&logo=googlecolab&logoColor=white" alt="Open In Colab" />
   </a>
   <a href="https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers">
     <img src="https://img.shields.io/badge/Weights-Wan_2.1_T2V_1.3B-f3f4f6?style=flat-square&labelColor=111827&color=374151" alt="Model Weights" />
