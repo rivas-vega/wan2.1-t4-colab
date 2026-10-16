@@ -114,15 +114,15 @@ _GRADIO6 = "css" in inspect.signature(gr.Blocks.launch).parameters
 
 def _hint(length: str, has_sound: bool = False) -> str:
     preset = DURATION_PRESETS.get(length, {})
-    minutes = preset.get("eta_min", 2.0)
+    minutes = preset.get("eta_min", 7.5)
     desc = preset.get("desc", "")
     sound_suffix = " · includes sound" if has_sound else ""
-    return f"{desc} · Live preview at step 6 (~{minutes} min total on T4){sound_suffix}"
+    return f"{desc} · Live preview at step 8 (~{minutes} min total on T4){sound_suffix}"
 
 
 def build_demo(pipe=None, audio_pipe=None, output_dir: str = "outputs") -> gr.Blocks:
     has_sound = audio_pipe is not None
-    default_length = "Reel 9:16 · Fast (3s)"
+    default_length = "Reel 9:16 · 4s"
     state_ref = {
         "pipe": get_cached_pipeline(pipe),
         "cancel_event": threading.Event(),
